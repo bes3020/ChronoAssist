@@ -1,3 +1,4 @@
+
 'use client';
 
 import type { ChangeEvent } from 'react';
@@ -13,8 +14,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Trash2 } from 'lucide-react';
 
 interface PreviewEntriesModalProps {
@@ -28,9 +36,8 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave }: Previe
   const [editableEntries, setEditableEntries] = useState<TimeEntry[]>([]);
 
   useEffect(() => {
-    // Deep copy entries to avoid mutating the original prop
     setEditableEntries(JSON.parse(JSON.stringify(entries)));
-  }, [entries, isOpen]); // Reset when entries change or modal reopens
+  }, [entries, isOpen]);
 
   const handleChange = (id: string, field: keyof TimeEntry, value: string | number) => {
     setEditableEntries(prev =>
@@ -46,7 +53,7 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave }: Previe
       ...prev,
       {
         id: newEntryId,
-        Date: new Date().toISOString().split('T')[0], // Default to today
+        Date: new Date().toISOString().split('T')[0],
         Project: '',
         Activity: '',
         WorkItem: '',
@@ -69,91 +76,91 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave }: Previe
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[90vw] md:max-w-[70vw] lg:max-w-[60vw] xl:max-w-[50vw] rounded-lg shadow-xl">
+      <DialogContent className="sm:max-w-[90vw] md:max-w-[80vw] lg:max-w-[70vw] xl:max-w-[60vw] rounded-lg shadow-xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">Preview Time Entries</DialogTitle>
           <DialogDescription>
             Review and edit the proposed time entries below.
           </DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[60vh] p-1 pr-4">
-          <div className="grid gap-6 py-4">
-            {editableEntries.map((entry, index) => (
-              <div key={entry.id} className="p-4 border rounded-md shadow-sm bg-card relative">
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-2 right-2 text-destructive hover:bg-destructive/10"
-                    onClick={() => handleRemoveEntry(entry.id)}
-                    aria-label="Remove entry"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                <h3 className="text-lg font-medium mb-3 text-primary">Entry {index + 1}</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor={`date-${entry.id}`} className="text-sm font-medium">Date</Label>
+        <ScrollArea className="max-h-[60vh] pr-4">
+          <Table className="min-w-full">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[120px]">Date</TableHead>
+                <TableHead>Project</TableHead>
+                <TableHead>Activity</TableHead>
+                <TableHead>Work Item</TableHead>
+                <TableHead className="w-[80px]">Hours</TableHead>
+                <TableHead>Comment</TableHead>
+                <TableHead className="w-[50px]">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {editableEntries.map((entry) => (
+                <TableRow key={entry.id}>
+                  <TableCell>
                     <Input
-                      id={`date-${entry.id}`}
                       type="date"
                       value={entry.Date}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Date', e.target.value)}
-                      className="mt-1"
+                      className="text-sm"
                     />
-                  </div>
-                  <div>
-                    <Label htmlFor={`hours-${entry.id}`} className="text-sm font-medium">Hours</Label>
+                  </TableCell>
+                  <TableCell>
                     <Input
-                      id={`hours-${entry.id}`}
+                      value={entry.Project}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Project', e.target.value)}
+                      className="text-sm"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Input
+                      value={entry.Activity}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Activity', e.target.value)}
+                      className="text-sm"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Input
+                      value={entry.WorkItem}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'WorkItem', e.target.value)}
+                      className="text-sm"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Input
                       type="number"
                       value={entry.Hours}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Hours', parseFloat(e.target.value) || 0)}
-                      className="mt-1"
+                      className="text-sm w-20"
                       step="0.1"
                     />
-                  </div>
-                  <div>
-                    <Label htmlFor={`project-${entry.id}`} className="text-sm font-medium">Project</Label>
+                  </TableCell>
+                  <TableCell>
                     <Input
-                      id={`project-${entry.id}`}
-                      value={entry.Project}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Project', e.target.value)}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor={`activity-${entry.id}`} className="text-sm font-medium">Activity</Label>
-                    <Input
-                      id={`activity-${entry.id}`}
-                      value={entry.Activity}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Activity', e.target.value)}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <Label htmlFor={`workItem-${entry.id}`} className="text-sm font-medium">Work Item</Label>
-                    <Input
-                      id={`workItem-${entry.id}`}
-                      value={entry.WorkItem}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'WorkItem', e.target.value)}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <Label htmlFor={`comment-${entry.id}`} className="text-sm font-medium">Comment</Label>
-                    <Input
-                      id={`comment-${entry.id}`}
                       value={entry.Comment}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Comment', e.target.value)}
-                      className="mt-1"
+                      className="text-sm"
                     />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={() => handleRemoveEntry(entry.id)}
+                      aria-label="Remove entry"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </ScrollArea>
-        <DialogFooter className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-4">
+        <DialogFooter className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-6">
             <Button variant="outline" onClick={handleAddEntry}>
               Add New Entry
             </Button>
