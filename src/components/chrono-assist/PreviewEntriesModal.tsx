@@ -185,7 +185,7 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historic
                         value={entry.Hours}
                         onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Hours', parseFloat(e.target.value) || 0)}
                         className="text-sm w-20"
-                        step="0.1"
+                        step="0.25"
                       />
                     </TableCell>
                     <TableCell>
