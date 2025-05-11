@@ -11,7 +11,13 @@ import { PreviewEntriesModal } from './PreviewEntriesModal';
 import { HistoricalDataModal } from './HistoricalDataModal';
 import { getProposedEntriesAction, submitTimeEntriesAction, getHistoricalDataAction } from '@/lib/actions';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Lightbulb, ListChecks, History, Send, Eye } from 'lucide-react';
+import { Lightbulb, ListChecks, History, Send, ChevronDown, Eye, RefreshCw } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export function TimeEntryForm() {
   const [notes, setNotes] = useState('');
@@ -29,7 +35,6 @@ export function TimeEntryForm() {
   const isLoading = isPendingPreview || isPendingSubmit || isPendingHistorical;
 
   useEffect(() => {
-    // Optionally, load historical data on component mount
     handleGetHistoricalData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -46,7 +51,6 @@ export function TimeEntryForm() {
     }
     startTransitionPreview(async () => {
       try {
-        // Pass current localHistoricalData if needed by AI, or AI uses its own version
         const entries = await getProposedEntriesAction(notes);
         if (entries.length === 0 && notes.trim() !== "") {
            toast({
@@ -168,24 +172,34 @@ export function TimeEntryForm() {
       </CardContent>
       <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-6">
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <Button 
-            onClick={handleGetHistoricalData} 
-            disabled={isLoading} 
-            variant="outline" 
-            className="w-full sm:w-auto"
-            aria-label="Refresh historical data"
-          >
-            <History className="mr-2 h-5 w-5" /> Refresh Data
-          </Button>
-          <Button 
-            onClick={() => setIsHistoricalModalOpen(true)} 
-            disabled={isLoading || localHistoricalData.length === 0} 
-            variant="outline" 
-            className="w-full sm:w-auto"
-            aria-label="View historical data"
-          >
-            <Eye className="mr-2 h-5 w-5" /> View Data
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                className="w-full sm:w-auto" 
+                disabled={isLoading}
+                aria-label="Historical data options"
+              >
+                <History className="mr-2 h-5 w-5" /> Historical Data <ChevronDown className="ml-2 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem 
+                onClick={handleGetHistoricalData} 
+                disabled={isLoading}
+                aria-label="Refresh historical data"
+              >
+                <RefreshCw className="mr-2 h-4 w-4" /> Refresh Data
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => setIsHistoricalModalOpen(true)} 
+                disabled={isLoading || localHistoricalData.length === 0}
+                aria-label="View historical data"
+              >
+                <Eye className="mr-2 h-4 w-4" /> View Data
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
           <Button 
