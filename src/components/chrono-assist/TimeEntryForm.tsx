@@ -9,9 +9,10 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { PreviewEntriesModal } from './PreviewEntriesModal';
 import { HistoricalDataModal } from './HistoricalDataModal';
+import { ShorthandModal } from './ShorthandModal'; // New import
 import { getProposedEntriesAction, submitTimeEntriesAction, getHistoricalDataAction } from '@/lib/actions';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Lightbulb, ListChecks, History, Send, ChevronDown, Eye, RefreshCw } from 'lucide-react';
+import { Lightbulb, ListChecks, History, Send, ChevronDown, Eye, RefreshCw, NotebookPen } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,10 +22,12 @@ import {
 
 export function TimeEntryForm() {
   const [notes, setNotes] = useState('');
+  const [shorthandNotes, setShorthandNotes] = useState(''); // New state for shorthand
   const [proposedEntries, setProposedEntries] = useState<TimeEntry[]>([]);
   const [localHistoricalData, setLocalHistoricalData] = useState<TimeEntry[]>([]);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [isHistoricalModalOpen, setIsHistoricalModalOpen] = useState(false);
+  const [isShorthandModalOpen, setIsShorthandModalOpen] = useState(false); // New state for shorthand modal
   
   const [isPendingPreview, startTransitionPreview] = useTransition();
   const [isPendingSubmit, startTransitionSubmit] = useTransition();
@@ -51,7 +54,8 @@ export function TimeEntryForm() {
     }
     startTransitionPreview(async () => {
       try {
-        const entries = await getProposedEntriesAction(notes);
+        // Pass shorthandNotes to the action
+        const entries = await getProposedEntriesAction(notes, shorthandNotes);
         if (entries.length === 0 && notes.trim() !== "") {
            toast({
             title: "No Suggestions",
@@ -138,6 +142,14 @@ export function TimeEntryForm() {
       description: "Your changes to the time entries have been saved locally.",
     });
   };
+
+  const handleSaveShorthand = (newShorthand: string) => {
+    setShorthandNotes(newShorthand);
+    toast({
+      title: "Shorthand Updated",
+      description: "Your shorthand notes have been saved.",
+    });
+  };
   
   const progressValue = isLoading ? undefined : 0;
 
@@ -149,7 +161,7 @@ export function TimeEntryForm() {
           AI Time Entry Assistant
         </CardTitle>
         <CardDescription className="text-md">
-          Enter your work notes below. The AI will help suggest time entries based on historical data.
+          Enter your work notes below. The AI will help suggest time entries based on historical data. Use the 'My Shorthand' button to define common abbreviations.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -172,6 +184,15 @@ export function TimeEntryForm() {
       </CardContent>
       <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-6">
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Button
+            variant="outline"
+            className="w-full sm:w-auto"
+            onClick={() => setIsShorthandModalOpen(true)}
+            disabled={isLoading}
+            aria-label="Edit my shorthand notes"
+          >
+            <NotebookPen className="mr-2 h-5 w-5" /> My Shorthand
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button 
@@ -230,6 +251,12 @@ export function TimeEntryForm() {
         isOpen={isHistoricalModalOpen}
         onClose={() => setIsHistoricalModalOpen(false)}
         historicalData={localHistoricalData}
+      />
+      <ShorthandModal
+        isOpen={isShorthandModalOpen}
+        onClose={() => setIsShorthandModalOpen(false)}
+        currentShorthand={shorthandNotes}
+        onSave={handleSaveShorthand}
       />
     </Card>
   );

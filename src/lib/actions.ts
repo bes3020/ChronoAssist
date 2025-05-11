@@ -1,3 +1,4 @@
+
 'use server';
 import type { InitialTimeEntryInput, InitialTimeEntryOutput } from '@/ai/flows/initial-time-entry-prompt';
 import { initialTimeEntry } from '@/ai/flows/initial-time-entry-prompt';
@@ -11,7 +12,7 @@ const generateProposedEntryId = () => `entry_${Date.now()}_${proposedEntryIdCoun
 let historicalEntryIdCounter = 0;
 const generateHistoricalEntryId = () => `hist_${Date.now()}_${historicalEntryIdCounter++}`;
 
-export async function getProposedEntriesAction(notes: string): Promise<TimeEntry[]> {
+export async function getProposedEntriesAction(notes: string, shorthandNotes?: string): Promise<TimeEntry[]> {
   if (!notes.trim()) {
     return [];
   }
@@ -20,6 +21,7 @@ export async function getProposedEntriesAction(notes: string): Promise<TimeEntry
     const aiInput: InitialTimeEntryInput = {
       notes,
       historicalData: mockHistoricalDataForAI, // AI still uses the raw format
+      shorthandNotes: shorthandNotes?.trim() ? shorthandNotes : undefined,
     };
     const aiOutput: InitialTimeEntryOutput = await initialTimeEntry(aiInput);
 
@@ -64,4 +66,3 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
 
   return { success: true, message: "Historical data fetched successfully (mock).", data: processedHistoricalData };
 }
-

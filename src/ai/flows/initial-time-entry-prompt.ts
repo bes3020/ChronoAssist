@@ -1,3 +1,4 @@
+
 // use server'
 
 /**
@@ -25,7 +26,8 @@ const TimeEntrySchema = z.object({
 const InitialTimeEntryInputSchema = z.object({
   notes: z.string().describe('The user provided notes for the time entry.'),
   historicalData: z.array(TimeEntrySchema).describe('The historical time entry data.'),
-promptOverride: z.string().optional().describe('Override the default prompt with a custom prompt.')
+  promptOverride: z.string().optional().describe('Override the default prompt with a custom prompt.'),
+  shorthandNotes: z.string().optional().describe('User-defined shorthand or common abbreviations to help interpret notes.'),
 });
 export type InitialTimeEntryInput = z.infer<typeof InitialTimeEntryInputSchema>;
 
@@ -41,7 +43,12 @@ const defaultPrompt = `You are an AI assistant designed to match user notes to t
 Analyze the following notes provided by the user:
 {{notes}}
 
-Using the historical data below, suggest possible time entries. If there is not enough information extrapolate based on historical data.
+{{#if shorthandNotes}}
+Consider the following user-defined shorthand/abbreviations when interpreting the notes:
+{{shorthandNotes}}
+{{/if}}
+
+Using the historical data below, suggest possible time entries. If there is not enough information, extrapolate based on historical data.
 
 Historical Data:
 {{#each historicalData}}
@@ -50,7 +57,8 @@ Date: {{this.Date}}, Project: {{this.Project}}, Activity: {{this.Activity}}, Wor
 
 Return a JSON array of time entries that match the user notes. Make sure the "Hours" field is a number.
 Ensure all entries match the historical data provided for Project, Activity, and WorkItem, and extrapolate if needed.
-Format your repsonse as JSON. Do not include any additional text.`;
+Format your response as JSON. Do not include any additional text or markdown specifiers like \`\`\`json or \`\`\`.
+`;
 
 const initialTimeEntryPrompt = ai.definePrompt({
   name: 'initialTimeEntryPrompt',
@@ -67,6 +75,11 @@ const initialTimeEntryFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await initialTimeEntryPrompt(input);
-    return output!;
+    // Ensure output is always an array, even if AI fails to produce valid JSON or returns null/undefined
+    if (!output || !Array.isArray(output)) {
+      console.warn('AI did not return a valid array. Returning empty array. Output:', output);
+      return [];
+    }
+    return output;
   }
 );
