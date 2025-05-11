@@ -1,3 +1,4 @@
+
 'use server';
 import type { InitialTimeEntryInput, InitialTimeEntryOutput } from '@/ai/flows/initial-time-entry-prompt';
 import { initialTimeEntry } from '@/ai/flows/initial-time-entry-prompt';
@@ -5,6 +6,9 @@ import { revalidatePath } from 'next/cache';
 import type { TimeEntry } from '@/types/time-entry';
 import { mockHistoricalDataForAI } from '@/lib/constants';
 import { subMonths, parseISO } from 'date-fns';
+// To use child_process, you might need to install types: npm install --save-dev @types/node
+// import { spawnSync } from 'child_process';
+// import path from 'path';
 
 // Helper to generate unique IDs for client-side rendering
 let proposedEntryIdCounter = 0;
@@ -19,7 +23,7 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
   }
 
   try {
-    // Fetch historical data for the AI to use. For this action, we'll use the local/mock data.
+    // Fetch historical data for the AI to use.
     const historicalDataResult = await getHistoricalDataAction();
     const historicalDataForAI = historicalDataResult.success ? 
       historicalDataResult.data.map(entry => ({ // Convert to AI-expected format if different
@@ -80,48 +84,70 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
 
 
 export async function getHistoricalDataAction(): Promise<{ success: boolean; message: string, data: TimeEntry[] }> {
-  console.log("Attempting to fetch historical data as described by scraping XYZ.com...");
+  console.log("Attempting to fetch historical data using Python/Helium script...");
 
-  // STEP 1: Navigate to XYZ.com
-  // In a real scenario, this would involve using a headless browser (e.g., Puppeteer, Playwright)
-  // to open the URL. This is not possible directly within a standard Next.js server action
-  // without significant additional setup (e.g., a separate microservice or running Puppeteer locally
-  // if the Next.js app is not serverless).
-  console.log("Conceptual step 1: Navigating to XYZ.com (Not actually performed by this server action)");
-
-  // STEP 2: Wait for the user to login
-  // Server actions are generally stateless and cannot "wait" for user interaction in a browser page.
-  // Authentication for scraping typically relies on the server action receiving necessary
-  // session cookies or API tokens with the request, assuming the user has already logged in elsewhere.
-  console.log("Conceptual step 2: Assuming user is logged in (Authentication would be pre-handled via cookies/tokens)");
-
-  // STEP 3: Click on the timesheets button
-  // This would require a CSS selector for the button and browser automation to click it.
-  // For example, with Puppeteer: await page.click('#timesheets-button-selector');
-  console.log("Conceptual step 3: Clicking 'timesheets' button (Not actually performed)");
-
-  // STEP 4: Capture all data in the grid for 3 months by scrolling down
-  // This is the most complex part, involving:
-  // - Identifying CSS selectors for the grid, rows, and individual data cells.
-  // - Implementing scrolling logic (e.g., `page.evaluate(() => window.scrollBy(0, window.innerHeight))`).
-  // - Parsing HTML content from the grid as it loads.
-  // - Handling pagination or infinite scroll until 3 months of data are collected.
-  // - Stopping condition: Check the date of the entries to ensure only the last 3 months are fetched.
-  console.log("Conceptual step 4: Capturing grid data for 3 months with scrolling (Not actually performed)");
-
-  // --- SIMULATION OF DATA FETCHING ---
-  // Since actual web scraping is not implemented in this server action,
-  // we will use the existing `mockHistoricalDataForAI` and simulate filtering for the last 3 months.
-  // In a real implementation, the data would come from the scraping process described above.
+  // --- CONCEPTUAL PYTHON/HELIUM SCRIPT INVOCATION ---
+  // In a real implementation, you would uncomment and use something like this:
+  /*
   try {
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay for fetching
+    const pythonScriptPath = path.join(process.cwd(), 'src', 'scripts', 'scrape_timesheets.py');
+    // Ensure Python and Helium are in the system's PATH or provide full path to python executable
+    const pythonProcess = spawnSync('python', [pythonScriptPath]);
+
+    if (pythonProcess.error) {
+      console.error('Failed to start Python script:', pythonProcess.error);
+      return { success: false, message: `Failed to start Python script: ${pythonProcess.error.message}`, data: [] };
+    }
+
+    if (pythonProcess.status !== 0) {
+      console.error(`Python script exited with error code ${pythonProcess.status}:`);
+      console.error('Stderr:', pythonProcess.stderr.toString());
+      return { success: false, message: `Python script error: ${pythonProcess.stderr.toString()}`, data: [] };
+    }
+
+    const rawData = pythonProcess.stdout.toString();
+    const scrapedEntries: Omit<TimeEntry, 'id'>[] = JSON.parse(rawData); // Assuming Python script outputs JSON array
+
+    const processedData: TimeEntry[] = scrapedEntries.map(entry => ({
+      ...entry,
+      id: generateHistoricalEntryId(),
+      Hours: Number(entry.Hours) || 0,
+    }));
+    
+    // Further filter for the last 3 months if the Python script doesn't already do it
+    const currentDate = new Date();
+    const threeMonthsAgo = subMonths(currentDate, 3);
+    const threeMonthFilteredData = processedData.filter(entry => {
+        try {
+            const entryDate = parseISO(entry.Date);
+            return entryDate >= threeMonthsAgo && entryDate <= currentDate;
+        } catch (e) {
+            console.warn(`Could not parse date for entry: ${entry.Date}. Excluding from 3-month filter.`, e);
+            return false;
+        }
+    });
+
+
+    console.log(`Successfully fetched ${threeMonthFilteredData.length} entries via Python script.`);
+    return { success: true, message: "Historical data fetched successfully via Python/Helium.", data: threeMonthFilteredData };
+
+  } catch (error) {
+    console.error("Error executing or processing Python script:", error);
+    return { success: false, message: `Error processing Python script output: ${(error as Error).message}`, data: [] };
+  }
+  */
+
+  // --- SIMULATION USING MOCK DATA (as Python script execution is conceptual here) ---
+  console.log("Using mock data as Python script execution is conceptual in this environment.");
+  try {
+    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate processing delay
 
     const currentDate = new Date();
     const threeMonthsAgo = subMonths(currentDate, 3);
     
     const filteredData = mockHistoricalDataForAI.filter(entry => {
       try {
-        const entryDate = parseISO(entry.Date); // Assumes entry.Date is 'YYYY-MM-DD'
+        const entryDate = parseISO(entry.Date); 
         return entryDate >= threeMonthsAgo && entryDate <= currentDate;
       } catch (e) {
         console.warn(`Could not parse date for entry: ${entry.Date}. Excluding from 3-month filter.`, e);
@@ -147,13 +173,12 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
       return { success: true, message: "Simulated historical data fetch: No mock data available.", data: [] };
     }
 
-    console.log(`Simulated: Fetched ${filteredData.length} entries conceptually from XYZ.com for the last 3 months.`);
+    console.log(`Simulated: Fetched ${filteredData.length} entries for the last 3 months.`);
     return { success: true, message: "Simulated historical data fetch for the last 3 months successful.", data: filteredData };
 
   } catch (error) {
     console.error("Error during simulated historical data processing:", error);
-    // Fallback to returning all mock data if there's an error in simulation logic itself
-     const allMockDataWithIdsOnError = mockHistoricalDataForAI.map(entry => ({
+    const allMockDataWithIdsOnError = mockHistoricalDataForAI.map(entry => ({
         ...entry,
         id: generateHistoricalEntryId(),
         Hours: Number(entry.Hours) || 0,
@@ -161,3 +186,5 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
     return { success: false, message: "Error in simulated data processing. Displaying all available mock data as a fallback.", data: allMockDataWithIdsOnError };
   }
 }
+
+    
