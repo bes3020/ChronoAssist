@@ -2,7 +2,7 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import type { TimeEntry } from '@/types/time-entry';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,6 +23,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Trash2 } from 'lucide-react';
 
 interface PreviewEntriesModalProps {
@@ -30,15 +37,25 @@ interface PreviewEntriesModalProps {
   onClose: () => void;
   entries: TimeEntry[];
   onSave: (updatedEntries: TimeEntry[]) => void;
+  historicalData: TimeEntry[];
 }
 
-export function PreviewEntriesModal({ isOpen, onClose, entries, onSave }: PreviewEntriesModalProps) {
+export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historicalData }: PreviewEntriesModalProps) {
   const [editableEntries, setEditableEntries] = useState<TimeEntry[]>([]);
 
   useEffect(() => {
     setEditableEntries(JSON.parse(JSON.stringify(entries)));
   }, [entries, isOpen]);
 
+  const getUniqueOptions = (field: keyof TimeEntry, currentValue: string): string[] => {
+    const historicalValues = Array.from(new Set(historicalData.map(item => String(item[field]))));
+    const options = [...historicalValues];
+    if (currentValue && !options.includes(currentValue)) {
+      options.push(currentValue);
+    }
+    return options.sort();
+  };
+  
   const handleChange = (id: string, field: keyof TimeEntry, value: string | number) => {
     setEditableEntries(prev =>
       prev.map(entry =>
@@ -80,7 +97,7 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave }: Previe
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">Preview Time Entries</DialogTitle>
           <DialogDescription>
-            Review and edit the proposed time entries below.
+            Review and edit the proposed time entries below. Project, Activity, and Work Item fields provide suggestions from historical data.
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh] pr-4">
@@ -97,66 +114,101 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave }: Previe
               </TableRow>
             </TableHeader>
             <TableBody>
-              {editableEntries.map((entry) => (
-                <TableRow key={entry.id}>
-                  <TableCell>
-                    <Input
-                      type="date"
-                      value={entry.Date}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Date', e.target.value)}
-                      className="text-sm"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={entry.Project}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Project', e.target.value)}
-                      className="text-sm"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={entry.Activity}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Activity', e.target.value)}
-                      className="text-sm"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={entry.WorkItem}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'WorkItem', e.target.value)}
-                      className="text-sm"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      type="number"
-                      value={entry.Hours}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Hours', parseFloat(e.target.value) || 0)}
-                      className="text-sm w-20"
-                      step="0.1"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={entry.Comment}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Comment', e.target.value)}
-                      className="text-sm"
-                    />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive hover:bg-destructive/10"
-                      onClick={() => handleRemoveEntry(entry.id)}
-                      aria-label="Remove entry"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {editableEntries.map((entry) => {
+                const projectOptions = getUniqueOptions('Project', entry.Project);
+                const activityOptions = getUniqueOptions('Activity', entry.Activity);
+                const workItemOptions = getUniqueOptions('WorkItem', entry.WorkItem);
+                return (
+                  <TableRow key={entry.id}>
+                    <TableCell>
+                      <Input
+                        type="date"
+                        value={entry.Date}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Date', e.target.value)}
+                        className="text-sm"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={entry.Project}
+                        onValueChange={(value) => handleChange(entry.id, 'Project', value)}
+                      >
+                        <SelectTrigger className="text-sm">
+                          <SelectValue placeholder="Select project" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {projectOptions.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={entry.Activity}
+                        onValueChange={(value) => handleChange(entry.id, 'Activity', value)}
+                      >
+                        <SelectTrigger className="text-sm">
+                          <SelectValue placeholder="Select activity" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activityOptions.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={entry.WorkItem}
+                        onValueChange={(value) => handleChange(entry.id, 'WorkItem', value)}
+                      >
+                        <SelectTrigger className="text-sm">
+                          <SelectValue placeholder="Select work item" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {workItemOptions.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        value={entry.Hours}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Hours', parseFloat(e.target.value) || 0)}
+                        className="text-sm w-20"
+                        step="0.1"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        value={entry.Comment}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => handleChange(entry.id, 'Comment', e.target.value)}
+                        className="text-sm"
+                      />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:bg-destructive/10"
+                        onClick={() => handleRemoveEntry(entry.id)}
+                        aria-label="Remove entry"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </ScrollArea>

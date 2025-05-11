@@ -1,20 +1,24 @@
+
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
 import type { TimeEntry } from '@/types/time-entry';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { PreviewEntriesModal } from './PreviewEntriesModal';
+import { HistoricalDataModal } from './HistoricalDataModal';
 import { getProposedEntriesAction, submitTimeEntriesAction, getHistoricalDataAction } from '@/lib/actions';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Lightbulb, ListChecks, History, Send } from 'lucide-react';
+import { Lightbulb, ListChecks, History, Send, Eye } from 'lucide-react';
 
 export function TimeEntryForm() {
   const [notes, setNotes] = useState('');
   const [proposedEntries, setProposedEntries] = useState<TimeEntry[]>([]);
+  const [localHistoricalData, setLocalHistoricalData] = useState<TimeEntry[]>([]);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [isHistoricalModalOpen, setIsHistoricalModalOpen] = useState(false);
   
   const [isPendingPreview, startTransitionPreview] = useTransition();
   const [isPendingSubmit, startTransitionSubmit] = useTransition();
@@ -23,6 +27,13 @@ export function TimeEntryForm() {
   const { toast } = useToast();
 
   const isLoading = isPendingPreview || isPendingSubmit || isPendingHistorical;
+
+  useEffect(() => {
+    // Optionally, load historical data on component mount
+    handleGetHistoricalData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
 
   const handlePreviewEntries = () => {
     if (!notes.trim()) {
@@ -35,6 +46,7 @@ export function TimeEntryForm() {
     }
     startTransitionPreview(async () => {
       try {
+        // Pass current localHistoricalData if needed by AI, or AI uses its own version
         const entries = await getProposedEntriesAction(notes);
         if (entries.length === 0 && notes.trim() !== "") {
            toast({
@@ -71,6 +83,13 @@ export function TimeEntryForm() {
           description: result.message,
           variant: result.success ? "default" : "destructive",
         });
+        if (result.success) {
+          // Optionally clear notes or reset form
+          // setNotes('');
+          // setProposedEntries([]);
+          // Refresh historical data as new entries might have been added
+          handleGetHistoricalData(); 
+        }
       } catch (error) {
          toast({
           title: "Submission Failed",
@@ -81,16 +100,23 @@ export function TimeEntryForm() {
     });
   };
 
-  const handleGetHistorical = () => {
+  const handleGetHistoricalData = () => {
     startTransitionHistorical(async () => {
       try {
         const result = await getHistoricalDataAction();
-         toast({
-          title: result.success ? "Success" : "Error",
-          description: result.message,
-          variant: result.success ? "default" : "destructive",
-        });
-        // Potentially update local state with result.data if needed for UI
+        if (result.success) {
+          setLocalHistoricalData(result.data);
+          toast({
+            title: "Historical Data Updated",
+            description: "Local historical data has been refreshed.",
+          });
+        } else {
+          toast({
+            title: "Error",
+            description: result.message,
+            variant: "destructive",
+          });
+        }
       } catch (error) {
         toast({
           title: "Failed to Get Historical Data",
@@ -109,7 +135,7 @@ export function TimeEntryForm() {
     });
   };
   
-  const progressValue = isLoading ? undefined : 0; // Indeterminate if loading, 0 otherwise
+  const progressValue = isLoading ? undefined : 0;
 
   return (
     <Card className="w-full shadow-xl rounded-lg">
@@ -140,15 +166,27 @@ export function TimeEntryForm() {
           </div>
         )}
       </CardContent>
-      <CardFooter className="flex flex-col sm:flex-row justify-between gap-4 pt-6">
-        <Button 
-          onClick={handleGetHistorical} 
-          disabled={isLoading} 
-          variant="outline" 
-          className="w-full sm:w-auto"
-        >
-          <History className="mr-2 h-5 w-5" /> Get Historical Data
-        </Button>
+      <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-6">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Button 
+            onClick={handleGetHistoricalData} 
+            disabled={isLoading} 
+            variant="outline" 
+            className="w-full sm:w-auto"
+            aria-label="Refresh historical data"
+          >
+            <History className="mr-2 h-5 w-5" /> Refresh Data
+          </Button>
+          <Button 
+            onClick={() => setIsHistoricalModalOpen(true)} 
+            disabled={isLoading || localHistoricalData.length === 0} 
+            variant="outline" 
+            className="w-full sm:w-auto"
+            aria-label="View historical data"
+          >
+            <Eye className="mr-2 h-5 w-5" /> View Data
+          </Button>
+        </div>
         <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
           <Button 
             onClick={handlePreviewEntries} 
@@ -172,6 +210,12 @@ export function TimeEntryForm() {
         onClose={() => setIsPreviewModalOpen(false)}
         entries={proposedEntries}
         onSave={handleSaveModalEntries}
+        historicalData={localHistoricalData}
+      />
+      <HistoricalDataModal
+        isOpen={isHistoricalModalOpen}
+        onClose={() => setIsHistoricalModalOpen(false)}
+        historicalData={localHistoricalData}
       />
     </Card>
   );
