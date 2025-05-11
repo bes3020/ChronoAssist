@@ -88,7 +88,7 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
 
   // --- CONCEPTUAL PYTHON/HELIUM SCRIPT INVOCATION ---
   // In a real implementation, you would uncomment and use something like this:
-  /*
+  
   try {
     const pythonScriptPath = path.join(process.cwd(), 'src', 'scripts', 'scrape_timesheets.py');
     // Ensure Python and Helium are in the system's PATH or provide full path to python executable
@@ -135,7 +135,7 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
     console.error("Error executing or processing Python script:", error);
     return { success: false, message: `Error processing Python script output: ${(error as Error).message}`, data: [] };
   }
-  */
+  
 
   // --- SIMULATION USING MOCK DATA (as Python script execution is conceptual here) ---
   console.log("Using mock data as Python script execution is conceptual in this environment.");

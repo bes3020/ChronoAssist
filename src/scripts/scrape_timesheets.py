@@ -26,26 +26,16 @@ def scrape_timesheet_data():
         # 1. Go to XYZ.com and wait for user login
         # Start Chrome (or another browser Helium supports)
         # Adjust the URL as needed
-        go_to("https://xyz.com/login") # Or the main page if login is there
+        go_to("https://bnext-prd.operations.dynamics.com/?cmp=DAT&mi=PSOTSTimesheetUserWorkSpace") # Or the main page if login is there
         
         print("Please log in to XYZ.com in the browser window that opened.")
         print("Once logged in, press Enter in this console to continue scraping...")
-        input() # Pause script execution until user presses Enter
+        #input() # Pause script execution until user presses Enter
 
         # 2. Click on the timesheets button
         # Replace 'Timesheets' with the actual text or selector for the button
         print("Attempting to click the 'Timesheets' button...")
-        if Button("Timesheets").exists(): # Example, use actual selector
-            click(Button("Timesheets"))
-        # elif S("#timesheet-button-id").exists(): # Example CSS selector
-        #     click(S("#timesheet-button-id"))
-        else:
-            print("Could not find the 'Timesheets' button. Please ensure you are on the correct page.")
-            # Potentially navigate or wait if the page is still loading
-            # time.sleep(5) # Generic wait
-            # if not Button("Timesheets").exists(): # Re-check
-            #     raise Exception("Timesheets button not found after waiting.")
-            # click(Button("Timesheets")) # Try clicking again
+        click("Timesheet transactions")
 
         print("Clicked 'Timesheets'. Waiting for data grid to load...")
         time.sleep(5) # Wait for the grid to potentially load
