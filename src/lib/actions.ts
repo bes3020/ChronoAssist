@@ -65,27 +65,59 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
 }
 
 export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ success: boolean; message: string }> {
+  if (!entries || entries.length === 0) {
+    return { success: false, message: "No entries to submit." };
+  }
+
+  console.log("Attempting to submit time entries using Python/Helium script...");
+  const pythonScriptPath = path.join(process.cwd(), 'src', 'scripts', 'submit_timesheets.py');
+  
+  // Serialize entries to pass to the Python script
+  // We only need the core data, not the client-side 'id'
+  const entriesForScript = entries.map(({ id, ...rest }) => rest);
+  const entriesJsonString = JSON.stringify(entriesForScript);
+
   try {
-    // This function assumes localStorage is available if 'use client' context could call it,
-    // but server actions run on the server. For true persistence from a server action,
-    // you'd write to a database or a server-side file.
-    // The previous implementation attempted to use localStorage which is client-side.
-    // For this example, we'll just log and simulate success.
-    // If you need to update data that getHistoricalDataAction might fetch,
-    // this would be the place to trigger that update on XYZ.com (if it has an API).
+    const pythonProcess = spawnSync('python', [pythonScriptPath, entriesJsonString], { encoding: 'utf8', timeout: 300000 }); // 5 min timeout
 
-    console.log("Submitting time entries (server action):", JSON.stringify(entries, null, 2));
-    // In a real scenario, you might be posting this data to an API endpoint of XYZ.com
-    // or storing it in a database.
+    if (pythonProcess.error) {
+      console.error('Failed to start Python submission script:', pythonProcess.error);
+      return { success: false, message: `Failed to start submission script: ${pythonProcess.error.message}` };
+    }
+
+    const stderrOutput = pythonProcess.stderr?.toString().trim();
+    if (stderrOutput) {
+        console.log('Python submission script STDERR:', stderrOutput); // Log stderr for debugging
+    }
     
-    // For demonstration, if we were updating data that getHistoricalDataAction might fetch,
-    // we might want to revalidate paths that display this historical data.
-    // revalidatePath('/'); // Example if page.tsx displayed historical data directly
+    const stdoutOutput = pythonProcess.stdout?.toString().trim();
+    if (!stdoutOutput) {
+        console.error('Python submission script produced no STDOUT output.');
+        return { success: false, message: 'Submission script produced no output. Check server logs for Python script STDERR.' };
+    }
+    
+    let scriptResult;
+    try {
+        scriptResult = JSON.parse(stdoutOutput);
+    } catch (e) {
+        console.error('Failed to parse JSON response from Python submission script:', e);
+        console.error('Python script STDOUT:', stdoutOutput);
+        return { success: false, message: 'Invalid response from submission script. Check server logs.'};
+    }
 
-    return { success: true, message: "Time entries processed successfully (server mock)." };
+    if (pythonProcess.status !== 0 || !scriptResult.success) {
+      console.error(`Python submission script exited with status ${pythonProcess.status} or reported failure.`);
+      return { success: false, message: scriptResult.message || "Time submission script failed. Check server logs for Python script details." };
+    }
+    
+    console.log("Python submission script executed successfully:", scriptResult.message);
+    // Optionally, revalidate historical data if submission implies changes
+    revalidatePath('/'); 
+    return { success: true, message: scriptResult.message || "Time entries submitted successfully via Python/Helium." };
+
   } catch (error) {
-    console.error("Error submitting time entries (server action):", error);
-    return { success: false, message: "Failed to submit time entries on the server." };
+    console.error("Error submitting time entries via Python script:", error);
+    return { success: false, message: `Server error during time submission: ${(error as Error).message}` };
   }
 }
 
@@ -97,7 +129,7 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
   let processedData: TimeEntry[] = [];
 
   try {
-    const pythonProcess = spawnSync('python3', [pythonScriptPath], { encoding : 'utf8' });
+    const pythonProcess = spawnSync('python', [pythonScriptPath], { encoding : 'utf8' });
 
     if (pythonProcess.error) {
       console.error('Failed to start Python script:', pythonProcess.error);
@@ -211,3 +243,4 @@ function handleScriptErrorFallback(errorMessage: string): { success: boolean; me
     }
 }
     
+
