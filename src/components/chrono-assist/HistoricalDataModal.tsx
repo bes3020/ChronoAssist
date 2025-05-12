@@ -48,7 +48,6 @@ export function HistoricalDataModal({ isOpen, onClose, historicalData }: Histori
                   <TableHead>Project</TableHead>
                   <TableHead>Activity</TableHead>
                   <TableHead>Work Item</TableHead>
-                  <TableHead className="w-[80px]">Hours</TableHead>
                   <TableHead>Comment</TableHead>
                 </TableRow>
               </TableHeader>
@@ -59,7 +58,6 @@ export function HistoricalDataModal({ isOpen, onClose, historicalData }: Histori
                     <TableCell>{entry.Project}</TableCell>
                     <TableCell>{entry.Activity}</TableCell>
                     <TableCell>{entry.WorkItem}</TableCell>
-                    <TableCell>{entry.Hours.toFixed(1)}</TableCell>
                     <TableCell>{entry.Comment}</TableCell>
                   </TableRow>
                 ))}
