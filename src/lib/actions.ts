@@ -137,6 +137,9 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
       return handleScriptErrorFallback("Python script failed to start. Using mock data.");
     }
 
+    const stderrOutput = pythonProcess.stderr?.toString().trim();
+    console.log('Python script stderr:', stderrOutput || "No stderr output.");
+
     if (pythonProcess.status !== 0) {
       const stderrOutput = pythonProcess.stderr?.toString().trim();
       console.error(`Python script exited with error code ${pythonProcess.status}:`);
@@ -156,7 +159,7 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
         processedData = scrapedEntries.map(entry => ({
             ...entry,
             id: generateHistoricalEntryId(),
-            Hours: Number(entry.Hours) || 0,
+            //Hours: Number(entry.Hours) || 0,
             Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0] // Ensure date format
         }));
     } catch (jsonError) {
