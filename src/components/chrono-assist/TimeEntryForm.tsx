@@ -54,8 +54,8 @@ export function TimeEntryForm() {
     }
     startTransitionPreview(async () => {
       try {
-        // Pass shorthandNotes to the action
-        const entries = await getProposedEntriesAction(notes, shorthandNotes);
+        // Pass shorthandNotes and localHistoricalData to the action
+        const entries = await getProposedEntriesAction(notes, localHistoricalData, shorthandNotes);
         if (entries.length === 0 && notes.trim() !== "") {
            toast({
             title: "No Suggestions",
@@ -261,3 +261,4 @@ export function TimeEntryForm() {
     </Card>
   );
 }
+

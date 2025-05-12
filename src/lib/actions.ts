@@ -17,18 +17,16 @@ const generateProposedEntryId = () => `entry_${Date.now()}_${proposedEntryIdCoun
 let historicalEntryIdCounter = 0;
 const generateHistoricalEntryId = () => `hist_${Date.now()}_${historicalEntryIdCounter++}`;
 
-export async function getProposedEntriesAction(notes: string, shorthandNotes?: string): Promise<TimeEntry[]> {
+export async function getProposedEntriesAction(notes: string, historicalEntries: TimeEntry[], shorthandNotes?: string): Promise<TimeEntry[]> {
   if (!notes.trim()) {
     return [];
   }
 
   try {
-    // Fetch historical data for the AI to use.
-    const historicalDataResult = await getHistoricalDataAction();
     let historicalDataForAI;
 
-    if (historicalDataResult.success && historicalDataResult.data.length > 0) {
-        historicalDataForAI = historicalDataResult.data.map(entry => ({ 
+    if (historicalEntries && historicalEntries.length > 0) {
+        historicalDataForAI = historicalEntries.map(entry => ({ 
         Date: entry.Date,
         Project: entry.Project,
         Activity: entry.Activity,
@@ -37,9 +35,9 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
         Comment: entry.Comment,
       }));
     } else {
-      // Fallback to mock data if fetch fails or returns no data
-      console.warn("Falling back to mock historical data for AI suggestions due to issues with live data retrieval.");
-      historicalDataForAI = mockHistoricalDataForAI;
+      // Fallback to mock data if provided historicalData is empty or undefined
+      console.warn("No historical data provided to getProposedEntriesAction or it's empty. Falling back to mock historical data for AI suggestions.");
+      historicalDataForAI = mockHistoricalDataForAI; // mockHistoricalDataForAI is already in the AI-expected format
     }
 
 
@@ -246,4 +244,5 @@ function handleScriptErrorFallback(errorMessage: string): { success: boolean; me
     }
 }
     
+
 
