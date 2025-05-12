@@ -23,22 +23,18 @@ export async function getProposedEntriesAction(notes: string, historicalEntries:
   }
 
   try {
-    let historicalDataForAI;
-
-    if (historicalEntries && historicalEntries.length > 0) {
-        historicalDataForAI = historicalEntries.map(entry => ({ 
+    // If historicalEntries is empty or undefined, map will result in an empty array.
+    // The AI model is expected to handle an empty historicalData array.
+    const historicalDataForAI = (historicalEntries && historicalEntries.length > 0)
+      ? historicalEntries.map(entry => ({ 
         Date: entry.Date,
         Project: entry.Project,
         Activity: entry.Activity,
         WorkItem: entry.WorkItem,
         Hours: entry.Hours,
         Comment: entry.Comment,
-      }));
-    } else {
-      // Fallback to mock data if provided historicalData is empty or undefined
-      console.warn("No historical data provided to getProposedEntriesAction or it's empty. Falling back to mock historical data for AI suggestions.");
-      historicalDataForAI = mockHistoricalDataForAI; // mockHistoricalDataForAI is already in the AI-expected format
-    }
+      }))
+      : [];
 
 
     const aiInput: InitialTimeEntryInput = {
@@ -131,25 +127,27 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
 
     if (pythonProcess.error) {
       console.error('Failed to start Python script:', pythonProcess.error);
-      // Fallback to mock data if script fails to start
-      return handleScriptErrorFallback("Python script failed to start. Using mock data.");
+      return handleScriptErrorFallback("Python script failed to start.");
     }
 
     const stderrOutput = pythonProcess.stderr?.toString().trim();
-    console.log('Python script stderr:', stderrOutput || "No stderr output.");
+    if (stderrOutput) { // Log stderr even if script succeeds, for diagnostics
+      console.log('Python script stderr:', stderrOutput);
+    }
+
 
     if (pythonProcess.status !== 0) {
-      const stderrOutput = pythonProcess.stderr?.toString().trim();
+      const errorMsg = stderrOutput || "Unknown Python script execution error.";
       console.error(`Python script exited with error code ${pythonProcess.status}:`);
-      console.error('Stderr:', stderrOutput || "No stderr output.");
-      // Fallback to mock data if script exits with an error
-      return handleScriptErrorFallback(`Python script execution error. ${stderrOutput || "Details in server logs."} Using mock data.`);
+      console.error('Stderr:', errorMsg);
+      return handleScriptErrorFallback(`Python script execution error: ${errorMsg}`);
     }
 
     rawData = pythonProcess.stdout?.toString().trim();
     if (!rawData) {
         console.warn('Python script executed successfully but produced no output (stdout is empty).');
-        return handleScriptErrorFallback("Python script produced no data. Using mock data.");
+        // Treat as success but with no data, or could be a fallback depending on requirements
+        return { success: true, message: "Historical data script ran successfully but returned no data.", data: [] };
     }
 
     try {
@@ -157,23 +155,19 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
         processedData = scrapedEntries.map(entry => ({
             ...entry,
             id: generateHistoricalEntryId(),
-            //Hours: Number(entry.Hours) || 0,
-            Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0] // Ensure date format
+            Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0] 
         }));
     } catch (jsonError) {
         console.error("Error parsing JSON from Python script output:", jsonError);
         console.error("Raw output from Python script:", rawData);
-        return handleScriptErrorFallback("Failed to parse data from Python script. Using mock data.");
+        return handleScriptErrorFallback("Failed to parse data from Python script.");
     }
     
     if (processedData.length === 0) {
         console.log("Python script ran successfully but returned no time entries.");
-        // It's possible the user has no entries, so we return empty data with success.
-        // Or, if this is unexpected, one might choose to fallback. For now, trust the script.
-        return { success: true, message: "Successfully fetched data, but no time entries were found for your account on XYZ.com.", data: [] };
+        return { success: true, message: "Successfully fetched data, but no time entries were found.", data: [] };
     }
 
-    // Apply 3-month filter
     const currentDate = new Date();
     const threeMonthsAgo = subMonths(currentDate, 3);
     const threeMonthFilteredData = processedData.filter(entry => {
@@ -192,57 +186,17 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
     }
     
     console.log(`Successfully fetched ${threeMonthFilteredData.length} entries from the last 3 months via Python script.`);
-    return { success: true, message: "Historical data fetched successfully via Python/Helium.", data: threeMonthFilteredData };
+    return { success: true, message: "Historical data fetched successfully.", data: threeMonthFilteredData };
 
   } catch (error) {
     console.error("Unhandled error during Python script execution or processing:", error);
-    return handleScriptErrorFallback(`An unexpected error occurred. ${(error as Error).message}. Using mock data.`);
+    return handleScriptErrorFallback(`An unexpected error occurred: ${(error as Error).message}.`);
   }
 }
 
-function handleScriptErrorFallback(errorMessage: string): { success: boolean; message: string, data: TimeEntry[] } {
-    console.warn(errorMessage);
-    // Simulate using mock data as a fallback
-    try {
-        const currentDate = new Date();
-        const threeMonthsAgo = subMonths(currentDate, 3);
-        
-        const filteredData = mockHistoricalDataForAI.filter(entry => {
-          try {
-            const entryDate = parseISO(entry.Date); 
-            return isValid(entryDate) && entryDate >= threeMonthsAgo && entryDate <= currentDate;
-          } catch (e) {
-            console.warn(`Could not parse date for mock entry: ${entry.Date}. Excluding from 3-month filter.`, e);
-            return false; 
-          }
-        }).map((entry) => ({
-          ...entry,
-          id: generateHistoricalEntryId(), 
-          Hours: Number(entry.Hours) || 0, 
-        }));
-
-        if (filteredData.length === 0 && mockHistoricalDataForAI.length > 0) {
-            console.warn("No mock historical data found for the last 3 months. Returning all available mock data as fallback.");
-            const allMockDataWithIds = mockHistoricalDataForAI.map(entry => ({
-                ...entry,
-                id: generateHistoricalEntryId(),
-                Hours: Number(entry.Hours) || 0,
-            }));
-            return { success: true, message: `${errorMessage} No mock entries found for the last 3 months. Displaying all mock data.`, data: allMockDataWithIds };
-        }
-        
-        if (filteredData.length === 0 && mockHistoricalDataForAI.length === 0) {
-          return { success: true, message: `${errorMessage} No mock data available.`, data: [] };
-        }
-
-        console.log(`Fallback: Using ${filteredData.length} mock entries for the last 3 months.`);
-        return { success: true, message: `${errorMessage} Displaying mock data for the last 3 months.`, data: filteredData };
-
-    } catch (processingError) {
-        console.error("Error during fallback mock data processing:", processingError);
-        return { success: false, message: `${errorMessage} Additionally, an error occurred while processing mock fallback data.`, data: [] };
-    }
+function handleScriptErrorFallback(errorMessage: string): { success: false; message: string, data: TimeEntry[] } {
+    console.warn(`Fallback triggered: ${errorMessage}`);
+    // Do not use mock data. Return empty data and indicate failure.
+    return { success: false, message: `${errorMessage} Could not load historical data.`, data: [] };
 }
     
-
-

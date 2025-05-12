@@ -52,6 +52,14 @@ export function TimeEntryForm() {
       });
       return;
     }
+    if (localHistoricalData.length === 0) {
+      toast({
+        title: "Historical Data Missing",
+        description: "Historical data is empty. Please load historical data first before previewing entries.",
+        variant: "destructive",
+      });
+      return;
+    }
     startTransitionPreview(async () => {
       try {
         // Pass shorthandNotes and localHistoricalData to the action
@@ -114,21 +122,31 @@ export function TimeEntryForm() {
         const result = await getHistoricalDataAction();
         if (result.success) {
           setLocalHistoricalData(result.data);
-          toast({
-            title: "Historical Data Updated",
-            description: "Local historical data has been refreshed.",
-          });
+          if (result.data.length > 0) {
+            toast({
+              title: "Historical Data Updated",
+              description: `Successfully fetched ${result.data.length} historical entries.`,
+            });
+          } else {
+             toast({
+              title: "Historical Data Empty",
+              description: result.message || "No historical time entries were found.",
+              variant: "default" // Use default variant as it's not an error, just empty
+            });
+          }
         } else {
+          setLocalHistoricalData([]); // Ensure data is cleared on failure
           toast({
-            title: "Error",
-            description: result.message,
+            title: "Failed to Load Data",
+            description: result.message || "Could not retrieve historical data.",
             variant: "destructive",
           });
         }
       } catch (error) {
+        setLocalHistoricalData([]); // Ensure data is cleared on error
         toast({
-          title: "Failed to Get Historical Data",
-          description: (error as Error).message || "An unexpected error occurred.",
+          title: "Error Fetching Data",
+          description: (error as Error).message || "An unexpected error occurred while fetching historical data.",
           variant: "destructive",
         });
       }
