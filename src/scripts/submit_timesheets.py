@@ -3,9 +3,14 @@
 # To run this, you'll need to install Helium: pip install helium
 # And a compatible web driver (e.g., ChromeDriver for Chrome)
 
-import helium
+from helium import (
+    start_chrome, click, Text, wait_until, find_all,
+    go_to, press, kill_browser, Button, TAB
+)
+from selenium.webdriver.chrome.options import Options as ChromeOptions
 import json
 import sys
+from datetime import datetime
 import time
 import os
 
@@ -13,59 +18,103 @@ import os
 def log_message(message):
     print(f"PYTHON_SUBMIT_LOG: {message}", file=sys.stderr)
 
-def submit_entries_to_xyz(entries_data):
+def submit_entries(entries_data):
     """
     Automates submitting time entries to XYZ.com using Helium.
     'entries_data' is a list of dictionaries, each representing a time entry.
     """
-    driver = None
     try:
-        log_message("Starting Chrome browser for submission...")
-        # For submission, interactive login is often necessary initially.
-        helium.start_chrome(headless=False) 
-        driver = helium.get_driver()
+        # Make sure this directory exists or can be created by the script
+        profile_base_dir = os.path.expanduser("~/.helium_profiles") # Example: C:\Users\YourUser\.helium_profiles or /home/youruser/.helium_profiles
+        profile_dir_name = "azure_ad_session" # Give your profile a name
+        persistent_profile_path = os.path.join(profile_base_dir, profile_dir_name)
+        driver_options = ChromeOptions()
+        driver_options.add_argument(f"--user-data-dir={persistent_profile_path}")
+
+        # Create the base directory if it doesn't exist
+        os.makedirs(profile_base_dir, exist_ok=True)
+        log_message("Starting Chrome browser...")
+        # Check if running in a headless environment (common for servers)
+        # Helium might require additional setup for headless, or it might not be feasible
+        # for sites requiring interactive login.
+        # For now, assume non-headless for interactive login.
+        start_chrome(headless=False, options=driver_options) # Explicitly non-headless for login
+
         log_message("Chrome browser started.")
-
-        # 1. Go to XYZ.com and handle login (placeholder)
-        # Adjust URL to the specific timesheet entry/creation page if known,
-        # otherwise, the main workspace URL used for scraping.
-        target_url = "https://bnext-prd.operations.dynamics.com/?cmp=DAT&mi=PSOTSTimesheetUserWorkSpace" 
-        log_message(f"Navigating to {target_url}")
-        helium.go_to(target_url)
-
-        log_message("Please log in to XYZ.com in the browser window if prompted.")
-        log_message("The script will wait for you to confirm login and page readiness.")
         
-        # Prompt user to confirm login and readiness, similar to the scraping script.
-        print("PYTHON_USER_PROMPT: After logging in and navigating to the timesheet entry page, press Enter in THIS console to continue submission...")
-        sys.stdin.readline() # Waits for user to press enter
-        log_message("User indicated login and page readiness. Proceeding with entry submission.")
+        # 1. Go to XYZ.com and wait for user login
+        target_url = "https://bnext-prd.operations.dynamics.com/?cmp=DAT&mi=PSOTSTimesheetUserWorkSpace"
+        log_message(f"Navigating to {target_url}")
+        go_to(target_url)
+        
+        wait_until(Text("Time").exists, timeout_secs=200)
+        # 2. Click on Registration button
+        buttons = find_all(Button("Registration"))
+        if(len(buttons) == 0):
+            log_message("No Registration button found. Exiting.")
+            return {"success": False, "message": "No Registration button found."}
+        elif(len(buttons) > 1):
+            click(buttons[1])
+        else:
+            click(buttons[0])
+            buttons = find_all(Button("Registration"))        
+            click(buttons[1])
 
-        # 2. Navigate to the time entry creation/submission page (if not already there)
-        # This is highly dependent on XYZ.com's UI.
-        # Example: Click a "New Timesheet", "Create Entry", or "Add Line" button.
-        # log_message("Looking for 'Add New Time Entry' button/link...")
-        # if helium.S("selector_for_add_new_entry_button").exists(): # Replace with actual selector
-        #     helium.click("selector_for_add_new_entry_button")
-        #     log_message("Clicked 'Add New Time Entry' button. Waiting for form...")
-        #     time.sleep(5) # Adjust wait time as needed for form to load
-        # else:
-        #     log_message("'Add New Time Entry' button not found. Assuming already on entry page or process differs.")
-
+        time.sleep(5)
         log_message(f"Received {len(entries_data)} entries to submit.")
 
+        #for x in range(10):
         for index, entry in enumerate(entries_data):
             log_message(f"Processing entry {index + 1}/{len(entries_data)}: Date {entry.get('Date', 'N/A')}, Project {entry.get('Project', 'N/A')}")
             
-            # === START OF HELIUM PLACEHOLDERS FOR DATA ENTRY ===
-            # These are conceptual steps. Replace with actual Helium commands for XYZ.com.
-            # You will need to inspect XYZ.com's HTML to find the correct selectors (IDs, names, labels, XPath, etc.)
+            wait_until(Button("Hours").exists, timeout_secs=10)
+            click(Button("Hours"))
+            time.sleep(3) # Wait for new fields to appear
 
-            # Example: If each entry is a new line/form section on the same page
-            # Or if you need to click "Add new line" for each entry:
-            # if helium.Button("Add New Line Button Text or Selector").exists():
-            #    helium.click(helium.Button("Add New Line Button Text or Selector"))
-            #    time.sleep(1) # Wait for new fields to appear
+            # Date processing
+            date_string = entry.get('Date')
+            formatted_date = None
+            if date_string:
+                try:
+                    # Try parsing YYYY-MM-DD
+                    date_obj = datetime.strptime(date_string, '%Y-%m-%d')
+                    # Format for Windows: "Tue 5/13" using %#m for non-padded month, %#d for non-padded day
+                    formatted_date = date_obj.strftime("%a %#m/%#d")
+                except ValueError:
+                    log_message(f"Warning: Date '{date_string}' (entry index {x}) is not in YYYY-MM-DD format. Trying MM/DD/YYYY.")
+                    try:
+                        # Try parsing MM/DD/YYYY
+                        date_obj = datetime.strptime(date_string, '%m/%d/%Y')
+                        formatted_date = date_obj.strftime("%a %#m/%#d")
+                    except ValueError:
+                        log_message(f"ERROR: Date '{date_string}' (entry index {x}) is not in MM/DD/YYYY format either. Cannot format date.")
+                except TypeError:
+                        log_message(f"ERROR: Invalid type for date_string ('{date_string}', entry index {x}). Cannot format date.")
+            else:
+                log_message(f"ERROR: No 'Date' field found in entry at index {x}.")
+
+            if not formatted_date:
+                log_message(f"Critical: Failed to determine or format date for entry at index {x} (original date string: '{date_string}'). Skipping this entry.")
+                continue # Skip to the next iteration of the for loop
+
+            log_message(f"Processing entry {index + 1}/{len(entries_data)}: Date '{formatted_date}', Project '{entry.get('Project', 'N/A')}'")
+
+            press(formatted_date)
+            press(TAB)
+            press(TAB)
+            press('BIO02001: BioLegend D365 F&SC Implementation')
+            press(TAB)
+            press('CR01 Sr Functional Solution Architect')
+            press(TAB)
+            press('Work item')
+            press(TAB)
+            press(TAB)
+            press('.25')
+            press(TAB)
+            press(TAB)
+            press(TAB)
+            press("Test comment")
+            time.sleep(10)
 
             # Date Field:
             # date_field_selector = "selector_for_date_field" # e.g., helium.TextField("Date") or S("#date-input-id")
@@ -123,7 +172,7 @@ def submit_entries_to_xyz(entries_data):
             # else:
             #    log_message(f"'Save Line' button ('{save_line_button_selector}') not found or not applicable for entry {index + 1}.")
             
-            log_message(f"Placeholder: Entry {index + 1} data (Date: {entry.get('Date')}, Project: {entry.get('Project')}) fields would be filled here.")
+            #log_message(f"Placeholder: Entry {index + 1} data (Date: {entry.get('Date')}, Project: {entry.get('Project')}) fields would be filled here.")
             # === END OF HELIUM PLACEHOLDERS FOR DATA ENTRY ===
             time.sleep(0.5) # Small delay between processing each entry, can be adjusted
 
@@ -147,10 +196,9 @@ def submit_entries_to_xyz(entries_data):
         return {"success": False, "message": f"Python script error during submission: {str(e)}"}
     finally:
         log_message("Submission script attempting to close browser.")
-        try:
-            if driver: # Check if driver was initialized
-                helium.kill_browser()
-                log_message("Browser closed after submission attempt.")
+        try:           
+            kill_browser()
+            log_message("Browser closed after submission attempt.")
         except Exception as e_close:
             log_message(f"Error closing browser after submission attempt: {e_close}")
 
@@ -163,7 +211,7 @@ if __name__ == "__main__":
             # The JSON string comes from Node.js and represents List<Omit<TimeEntry, 'id'>>
             entries_list = json.loads(entries_json_string)
             log_message(f"Script received {len(entries_list)} entries to submit via command line argument.")
-            result = submit_entries_to_xyz(entries_list)
+            result = submit_entries(entries_list)
         except json.JSONDecodeError as e:
             log_message(f"Error decoding JSON input from command line: {e}")
             result = {"success": False, "message": f"Python script JSON decoding error: {e}"}
@@ -172,7 +220,8 @@ if __name__ == "__main__":
             result = {"success": False, "message": f"Python script unexpected error: {e_main}"}
     else:
         log_message("No time entries data provided to the script via command line argument.")
-        result = {"success": False, "message": "Python script: No data received to submit."}
+        result = submit_entries([{"Date": "2025-05-13", "Project": "Project Alpha", "Activity": "Development", "WorkItem": "Feature X", "Hours": .5, "Comment": "API integration and testing"},{"Date": "2025-05-13", "Project": "Project Alpha", "Activity": "Development", "WorkItem": "Feature X", "Hours": .5, "Comment": "API integration and testing"},{"Date": "2025-05-13", "Project": "Project Alpha", "Activity": "Development", "WorkItem": "Feature X", "Hours": .5, "Comment": "API integration and testing"}])
+        #result = {"success": False, "message": "Python script: No data received to submit."}
     
     # Output the result as JSON to stdout for Node.js to capture
     print(json.dumps(result))

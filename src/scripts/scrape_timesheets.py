@@ -4,8 +4,8 @@
 # And a compatible web driver (e.g., ChromeDriver for Chrome)
 
 from helium import (
-    start_chrome, click, S, TextField, Button, get_driver, Text, Point,
-    scroll_down, find_all, go_to, press, ENTER, write, kill_browser, PAGE_DOWN,
+    start_chrome, click, S, Text, Point,
+    find_all, go_to, press, kill_browser, PAGE_DOWN,
     wait_until
 )
 from selenium.webdriver.chrome.options import Options as ChromeOptions
