@@ -14,7 +14,7 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
  * or the function itself needs to be async, which is already the case here.
  */
 export async function getAnonymousUserId(): Promise<string> {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   let userId = cookieStore.get(USER_ID_COOKIE_NAME)?.value;
 
   if (!userId) {
