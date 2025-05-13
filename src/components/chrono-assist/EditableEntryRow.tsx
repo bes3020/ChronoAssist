@@ -1,4 +1,3 @@
-
 'use client';
 
 import type { ChangeEvent } from 'react';
@@ -22,15 +21,16 @@ import { Trash2 } from 'lucide-react';
 interface EditableEntryRowProps {
   entry: TimeEntry;
   historicalData: TimeEntry[];
-  uniqueProjects: string[];
+  uniqueProjects: string[]; // Assumed to be pre-filtered for non-empty strings by the parent
   onChange: (id: string, field: keyof TimeEntry, value: string | number) => void;
   onRemove: (id: string) => void;
 }
 
 export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChange, onRemove }: EditableEntryRowProps) {
   const projectOptions = useMemo(() => {
-    const options = [...uniqueProjects];
-    if (entry.Project && !options.includes(entry.Project)) {
+    const options = [...uniqueProjects]; // uniqueProjects is already filtered for non-empty strings
+    // If current entry.Project is non-empty and not in the filtered options, add it
+    if (entry.Project && entry.Project !== '' && !options.includes(entry.Project)) {
       options.push(entry.Project);
       options.sort();
     }
@@ -39,11 +39,14 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
 
   const activityOptions = useMemo(() => {
     if (!entry.Project) return [];
+    // Get activities for the current project, filter out empty strings for SelectItem values
     const filteredActivities = historicalData
       .filter(item => item.Project === entry.Project)
-      .map(item => item.Activity);
+      .map(item => item.Activity)
+      .filter(activity => activity !== ''); // Ensure options for SelectItem are non-empty
     const uniqueActivities = Array.from(new Set(filteredActivities));
-    if (entry.Activity && !uniqueActivities.includes(entry.Activity)) {
+    // Add current non-empty Activity if it's not in the list
+    if (entry.Activity && entry.Activity !== '' && !uniqueActivities.includes(entry.Activity)) {
       uniqueActivities.push(entry.Activity);
     }
     return uniqueActivities.sort();
@@ -51,11 +54,14 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
 
   const workItemOptions = useMemo(() => {
     if (!entry.Project || !entry.Activity) return [];
+    // Get work items for the current project/activity, filter out empty strings for SelectItem values
     const filteredWorkItems = historicalData
       .filter(item => item.Project === entry.Project && item.Activity === entry.Activity)
-      .map(item => item.WorkItem);
+      .map(item => item.WorkItem)
+      .filter(workItem => workItem !== ''); // Ensure options for SelectItem are non-empty
     const uniqueWorkItems = Array.from(new Set(filteredWorkItems));
-    if (entry.WorkItem && !uniqueWorkItems.includes(entry.WorkItem)) {
+    // Add current non-empty WorkItem if it's not in the list
+    if (entry.WorkItem && entry.WorkItem !== '' && !uniqueWorkItems.includes(entry.WorkItem)) {
       uniqueWorkItems.push(entry.WorkItem);
     }
     return uniqueWorkItems.sort();
@@ -73,7 +79,7 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
       </TableCell>
       <TableCell>
         <Select
-          value={entry.Project || ''}
+          value={entry.Project || ''} // If entry.Project is '', SelectValue will show placeholder
           onValueChange={(value) => onChange(entry.id, 'Project', value)}
         >
           <SelectTrigger className="text-sm">
@@ -81,8 +87,8 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
           </SelectTrigger>
           <SelectContent>
             {projectOptions.map((option) => (
-              <SelectItem key={option} value={option}>
-                {option || 'N/A'}
+              <SelectItem key={option} value={option}> {/* option is guaranteed non-empty */}
+                {option} {/* Display text can be the option itself */}
               </SelectItem>
             ))}
           </SelectContent>
@@ -90,17 +96,17 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
       </TableCell>
       <TableCell>
         <Select
-          value={entry.Activity || ''}
+          value={entry.Activity || ''} // If entry.Activity is '', SelectValue will show placeholder
           onValueChange={(value) => onChange(entry.id, 'Activity', value)}
-          disabled={!entry.Project || activityOptions.length === 0}
+          disabled={!entry.Project} // Activity selection enabled if Project is selected
         >
           <SelectTrigger className="text-sm">
             <SelectValue placeholder="Select activity" />
           </SelectTrigger>
           <SelectContent>
             {activityOptions.map((option) => (
-              <SelectItem key={option} value={option}>
-                {option || 'N/A'}
+              <SelectItem key={option} value={option}> {/* option is guaranteed non-empty */}
+                {option}
               </SelectItem>
             ))}
           </SelectContent>
@@ -108,17 +114,17 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
       </TableCell>
       <TableCell>
         <Select
-          value={entry.WorkItem || ''}
+          value={entry.WorkItem || ''} // If entry.WorkItem is '', SelectValue will show placeholder
           onValueChange={(value) => onChange(entry.id, 'WorkItem', value)}
-          disabled={!entry.Project || !entry.Activity || workItemOptions.length === 0}
+          disabled={!entry.Project || !entry.Activity} // WorkItem selection enabled if Project and Activity are selected
         >
           <SelectTrigger className="text-sm">
             <SelectValue placeholder="Select work item" />
           </SelectTrigger>
           <SelectContent>
             {workItemOptions.map((option) => (
-              <SelectItem key={option} value={option}>
-                {option || 'N/A'}
+              <SelectItem key={option} value={option}> {/* option is guaranteed non-empty */}
+                {option}
               </SelectItem>
             ))}
           </SelectContent>

@@ -1,4 +1,3 @@
-
 'use client';
 
 import type { ChangeEvent } from 'react';
@@ -34,10 +33,10 @@ interface PreviewEntriesModalProps {
   historicalData: TimeEntry[]; // For populating dropdowns
 }
 
-// Helper function to get unique string values for a field from historical data
+// Helper function to get unique string values for a field from historical data, filtering out empty strings
 const getUniqueFieldValues = (data: TimeEntry[], field: keyof Omit<TimeEntry, 'id' | 'Hours'>): string[] => {
   if (!data) return [];
-  return Array.from(new Set(data.map(item => String(item[field])))).sort();
+  return Array.from(new Set(data.map(item => String(item[field])))).filter(val => val !== '').sort();
 };
 
 
@@ -60,28 +59,31 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historic
 
         if (field === 'Project') {
           const newProject = String(value);
+          // Get activities for the new project. Do NOT filter empty strings here, as '' might be a valid historical Activity.
           const activitiesForNewProject = Array.from(new Set(historicalData
             .filter(item => item.Project === newProject)
             .map(item => item.Activity)));
           
-          if (!activitiesForNewProject.includes(updatedEntry.Activity || '')) { // Handle undefined activity
+          if (!activitiesForNewProject.includes(updatedEntry.Activity || '')) { 
             updatedEntry.Activity = ''; 
           }
           
+          // Get work items for the new project and (potentially new/reset) activity. Do NOT filter empty strings here.
           const workItemsForNewProjectAndActivity = Array.from(new Set(historicalData
             .filter(item => item.Project === newProject && item.Activity === updatedEntry.Activity)
             .map(item => item.WorkItem)));
 
-          if (!workItemsForNewProjectAndActivity.includes(updatedEntry.WorkItem || '')) { // Handle undefined workitem
+          if (!workItemsForNewProjectAndActivity.includes(updatedEntry.WorkItem || '')) { 
             updatedEntry.WorkItem = ''; 
           }
         } else if (field === 'Activity') {
           const newActivity = String(value);
+          // Get work items for current project and new activity. Do NOT filter empty strings here.
            const workItemsForCurrentProjectAndNewActivity = Array.from(new Set(historicalData
             .filter(item => item.Project === updatedEntry.Project && item.Activity === newActivity)
             .map(item => item.WorkItem)));
           
-          if (!workItemsForCurrentProjectAndNewActivity.includes(updatedEntry.WorkItem || '')) { // Handle undefined workitem
+          if (!workItemsForCurrentProjectAndNewActivity.includes(updatedEntry.WorkItem || '')) { 
             updatedEntry.WorkItem = ''; 
           }
         }
@@ -145,7 +147,7 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historic
                   key={entry.id} // Client-side ID
                   entry={entry}
                   historicalData={historicalData}
-                  uniqueProjects={uniqueProjects}
+                  uniqueProjects={uniqueProjects} // uniqueProjects is already pre-filtered for non-empty strings
                   onChange={handleChange}
                   onRemove={handleRemoveEntry}
                 />
