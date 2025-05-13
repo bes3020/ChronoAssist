@@ -9,35 +9,35 @@ import { spawnSync } from 'child_process';
 import path from 'path';
 import { getAnonymousUserId } from '@/lib/auth';
 import * as db from '@/lib/db'; // Import all exports from db.ts
+import { v4 as uuidv4 } from 'uuid';
 
 // Initialize DB (safe to call multiple times, only runs once)
 db.initializeDb();
 
 // Helper to generate unique IDs for client-side rendering of proposed entries
-let proposedEntryIdCounter = 0;
-const generateProposedEntryId = () => `proposed_${Date.now()}_${proposedEntryIdCounter++}`;
+const generateProposedEntryId = () => `proposed_${Date.now()}_${uuidv4().substring(0, 8)}`;
 
 
 export async function getProposedEntriesAction(notes: string, shorthandNotes?: string): Promise<{ rawAiOutputCount: number; filteredEntries: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensure parent records exist
+  // ensureUserRecordsExist is important if other operations depend on user records, but not strictly for fetching AI suggestions
+  // db.ensureUserRecordsExist(userId); 
 
   if (!notes.trim()) {
-    await db.clearProposedEntries(userId); // Clear any old proposed entries if notes are empty
+    // If notes are empty, AI won't be called, return empty.
+    // Clearing proposed entries is now handled by saveUserProposedEntriesAction or specific logic in TimeEntryForm.
     return { rawAiOutputCount: 0, filteredEntries: [] };
   }
 
   try {
-    const historicalEntriesFromDb = db.getHistoricalEntries(userId, 3); // Fetch last 3 months for AI context
+    const historicalEntriesFromDb = db.getHistoricalEntries(userId, 3); 
 
-    // Prepare historical data for AI, excluding 'Hours' as it's not needed for context
     const historicalDataForAI = historicalEntriesFromDb.map(entry => ({ 
       Date: entry.Date,
       Project: entry.Project,
       Activity: entry.Activity,
       WorkItem: entry.WorkItem,
       Comment: entry.Comment,
-      // Hours field is intentionally omitted here for AI context
     }));
 
     const aiInput: InitialTimeEntryInput = {
@@ -46,30 +46,29 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
       shorthandNotes: shorthandNotes?.trim() ? shorthandNotes : undefined,
     };
     const aiOutput: InitialTimeEntryOutput = await initialTimeEntry(aiInput);
-    console.log("Raw AI Output:", JSON.stringify(aiOutput, null, 2));
+    console.log("Raw AI Output (from getProposedEntriesAction):", JSON.stringify(aiOutput, null, 2));
 
-    // AI is expected to return entries with Project, Activity, and WorkItem. No more client-side filtering here.
     const processedEntries: TimeEntry[] = aiOutput.map(entry => ({
       ...entry,
       id: generateProposedEntryId(), 
       Hours: Number(entry.Hours) || 0, 
     }));
     
-    console.log("Processed AI Entries (no client-side filtering on P/A/WI):", JSON.stringify(processedEntries, null, 2));
+    console.log("Processed AI Entries by getProposedEntriesAction (no DB save here):", JSON.stringify(processedEntries, null, 2));
     
-    db.saveProposedEntries(userId, processedEntries); // Save to DB
+    // DO NOT SAVE TO DB HERE. Saving is handled by TimeEntryForm after user choice.
     return { rawAiOutputCount: aiOutput.length, filteredEntries: processedEntries };
 
   } catch (error) {
-    console.error("Error getting proposed entries from AI:", error);
-    const existingProposed = db.getProposedEntries(userId);
-    return { rawAiOutputCount: 0, filteredEntries: existingProposed };
+    console.error("Error getting proposed entries from AI (in getProposedEntriesAction):", error);
+    // On error, return empty, don't try to fetch from DB here.
+    return { rawAiOutputCount: 0, filteredEntries: [] };
   }
 }
 
 export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ success: boolean; message: string }> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensure parent records exist
+  db.ensureUserRecordsExist(userId); 
 
   if (!entries || entries.length === 0) {
     return { success: false, message: "No entries to submit." };
@@ -114,9 +113,8 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
       return { success: false, message: scriptResult.message || "Time submission script failed. Check server logs for Python script details." };
     }
     
-    // If script submission is successful, add these entries to historical data in DB
-    db.addHistoricalEntries(userId, entries.map(e => ({...e, id: e.id || generateProposedEntryId() /* ensure id for db if somehow missing */}))); // client_id becomes the main id here
-    db.clearProposedEntries(userId); // Clear proposed entries after successful submission
+    db.addHistoricalEntries(userId, entries.map(e => ({...e, id: e.id || generateProposedEntryId() })));
+    // db.clearProposedEntries(userId); // Clearing proposed entries is now part of saveUserProposedEntriesAction if called with empty array
 
     console.log("Python submission script executed successfully:", scriptResult.message);
     revalidatePath('/'); 
@@ -128,9 +126,7 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
   }
 }
 
-/**
- * Fetches historical data directly from the local database.
- */
+
 export async function getHistoricalDataAction(): Promise<{ success: boolean; message: string; data: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId);
@@ -144,9 +140,7 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
   }
 }
 
-/**
- * Refreshes historical data by running the Python scraping script and updating the database.
- */
+
 export async function refreshHistoricalDataFromScriptAction(): Promise<{ success: boolean; message: string, data: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId); 
@@ -155,7 +149,7 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
   const pythonScriptPath = path.join(process.cwd(), 'src', 'scripts', 'scrape_timesheets.py');
   
   try {
-    const pythonProcess = spawnSync('python', [pythonScriptPath], { encoding : 'utf8', timeout: 300000 }); // 5 min timeout
+    const pythonProcess = spawnSync('python', [pythonScriptPath], { encoding : 'utf8', timeout: 300000 });
 
     if (pythonProcess.error) {
       console.error('Failed to start Python script:', pythonProcess.error);
@@ -183,9 +177,6 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
         return { success: true, message: `Historical data script ran but returned no new data. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
     }
 
-    // The Python script for scraping might not return 'Hours'.
-    // The TimeEntry type expects 'Hours', so we'll provide a default if it's missing.
-    // Historical data for AI context does not need Hours.
     type ScrapedEntryMaybeNoHours = Omit<TimeEntry, 'id' | 'Hours'> & { Hours?: number };
     let scrapedEntries: ScrapedEntryMaybeNoHours[];
     try {
@@ -201,7 +192,7 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
         ...entry,
         id: `scraped_${Date.now()}_${index}`, 
         Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0],
-        Hours: 0, // Hours are not stored for historical data used by AI.
+        Hours: 0, 
     }));
 
     db.addHistoricalEntries(userId, processedScrapedData); 
@@ -222,7 +213,6 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
   }
 }
 
-// --- Actions for Shorthand and Main Notes ---
 
 export async function getUserShorthandAction(): Promise<string> {
   const userId = await getAnonymousUserId();
@@ -261,7 +251,6 @@ export async function saveUserMainNotesAction(text: string): Promise<{ success: 
   }
 }
 
-// --- Actions for Proposed Entries (if needed beyond getProposedEntriesAction) ---
 
 export async function getUserProposedEntriesAction(): Promise<TimeEntry[]> {
   const userId = await getAnonymousUserId();
@@ -273,8 +262,12 @@ export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promi
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId); 
   try {
+    // If entries is empty, this will effectively clear proposed entries for the user.
     db.saveProposedEntries(userId, entries);
     revalidatePath('/');
+    if (entries.length === 0) {
+        return { success: true, message: "Proposed entries cleared." };
+    }
     return { success: true, message: "Proposed entries updated." };
   } catch (error) {
     console.error("Error saving proposed entries:", error);

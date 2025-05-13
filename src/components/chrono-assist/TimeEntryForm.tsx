@@ -10,11 +10,12 @@ import { useToast } from '@/hooks/use-toast';
 import { PreviewEntriesModal } from './PreviewEntriesModal';
 import { HistoricalDataModal } from './HistoricalDataModal';
 import { ShorthandModal } from './ShorthandModal';
+import { GenerateOrAddModal } from './GenerateOrAddModal'; // New Modal
 import { 
   getProposedEntriesAction, 
   submitTimeEntriesAction, 
-  getHistoricalDataAction, // Fetches from DB
-  refreshHistoricalDataFromScriptAction, // Fetches from Python Script
+  getHistoricalDataAction,
+  refreshHistoricalDataFromScriptAction,
   getUserShorthandAction,
   saveUserShorthandAction,
   getUserMainNotesAction,
@@ -23,7 +24,7 @@ import {
   saveUserProposedEntriesAction
 } from '@/lib/actions';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Lightbulb, ListChecks, History, Send, ChevronDown, Eye, RefreshCw, NotebookPen } from 'lucide-react';
+import { Lightbulb, ListChecks, History, Send, ChevronDown, Eye, RefreshCw, NotebookPen, Edit3, Brain } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,24 +32,31 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useDebouncedCallback } from 'use-debounce';
+import { v4 as uuidv4 } from 'uuid';
+
+
+// Helper to generate unique IDs, moved here to be accessible by merge logic
+const generateProposedEntryId = () => `proposed_${Date.now()}_${uuidv4().substring(0, 8)}`;
+
 
 export function TimeEntryForm() {
   const [notes, setNotes] = useState('');
   const [shorthandNotes, setShorthandNotes] = useState('');
   const [proposedEntries, setProposedEntries] = useState<TimeEntry[]>([]);
   const [localHistoricalData, setLocalHistoricalData] = useState<TimeEntry[]>([]);
+  
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [isHistoricalModalOpen, setIsHistoricalModalOpen] = useState(false);
   const [isShorthandModalOpen, setIsShorthandModalOpen] = useState(false);
-  
-  const [isPendingPreview, startTransitionPreview] = useTransition();
-  const [isPendingSubmit, startTransitionSubmit] = useTransition();
+  const [isGenerateOrAddModalOpen, setIsGenerateOrAddModalOpen] = useState(false); // New state
+
+  const [isProcessing, startTransitionProcessing] = useTransition(); // General processing state
   const [isPendingHistoricalRefresh, startTransitionHistoricalRefresh] = useTransition();
   const [isPendingInitialLoad, startTransitionInitialLoad] = useTransition();
 
   const { toast } = useToast();
 
-  const isLoading = isPendingPreview || isPendingSubmit || isPendingHistoricalRefresh || isPendingInitialLoad;
+  const isLoading = isProcessing || isPendingHistoricalRefresh || isPendingInitialLoad;
 
   const debouncedSaveNotes = useDebouncedCallback(async (newNotes: string) => {
     await saveUserMainNotesAction(newNotes);
@@ -66,7 +74,7 @@ export function TimeEntryForm() {
         const [loadedNotes, loadedShorthand, dbHistoricalResult, loadedProposed] = await Promise.all([
           getUserMainNotesAction(),
           getUserShorthandAction(),
-          getHistoricalDataAction(), // Fetch historical data from DB on initial load
+          getHistoricalDataAction(),
           getUserProposedEntriesAction()
         ]);
         setNotes(loadedNotes);
@@ -102,11 +110,11 @@ export function TimeEntryForm() {
   }, []);
 
 
-  const handlePreviewEntries = () => {
+  const handleTimesheetAI = () => {
     if (!notes.trim()) {
       toast({
         title: "Input Required",
-        description: "Please enter some notes before previewing entries.",
+        description: "Please enter some notes before using Timesheet AI.",
         variant: "destructive",
       });
       return;
@@ -114,78 +122,124 @@ export function TimeEntryForm() {
     if (localHistoricalData.length === 0) {
       toast({
         title: "Historical Data Missing",
-        description: "Historical data is empty. Please load historical data first before previewing entries (use 'Refresh Data' under 'Historical Data' menu).",
+        description: "Historical data is empty. Please load historical data first (use 'Refresh Data' under 'Historical Data' menu).",
         variant: "destructive",
       });
       return;
     }
-    startTransitionPreview(async () => {
+    setIsGenerateOrAddModalOpen(true);
+  };
+
+  const processAiEntries = async (mode: 'generate' | 'add') => {
+    setIsGenerateOrAddModalOpen(false);
+    startTransitionProcessing(async () => {
       try {
-        const result = await getProposedEntriesAction(notes, shorthandNotes);
+        const aiResult = await getProposedEntriesAction(notes, shorthandNotes);
+        let finalEntries: TimeEntry[] = [];
+
+        if (mode === 'generate') {
+          finalEntries = aiResult.filteredEntries;
+        } else { // mode === 'add'
+          const existingEntries = await getUserProposedEntriesAction();
+          // Ensure new entries from AI get unique IDs if merged
+          const newAiEntriesWithUniqueIds = aiResult.filteredEntries.map(entry => ({
+            ...entry,
+            id: generateProposedEntryId() 
+          }));
+          finalEntries = [...existingEntries, ...newAiEntriesWithUniqueIds];
+        }
+
+        await saveUserProposedEntriesAction(finalEntries);
+        setProposedEntries(finalEntries);
         
-        // No client-side filtering based on content here. AI output is trusted.
-        // If AI returns empty but notes were provided, it means AI found no matches.
-        // Toast logic remains to inform user about AI's output.
-        if (result.rawAiOutputCount > 0 && result.filteredEntries.length === 0 && notes.trim() !== "") {
-            toast({
+        if (aiResult.rawAiOutputCount > 0 && finalEntries.length === 0 && notes.trim() !== "") {
+             toast({
               title: "Suggestions Incomplete or Filtered",
-              description: "AI made suggestions, but they might have been incomplete or filtered out before display. Please review your notes or historical data if this is unexpected.",
+              description: "AI made suggestions, but they might have been incomplete or filtered out. Review notes or historical data.",
               variant: "default" 
             });
-        } else if (result.rawAiOutputCount === 0 && notes.trim() !== "") {
+        } else if (aiResult.rawAiOutputCount === 0 && notes.trim() !== "") {
            toast({
             title: "No Suggestions Found",
-            description: "AI could not generate any time entry suggestions based on your notes. Try adding more details or check your historical data.",
+            description: "AI could not generate any time entry suggestions. Try adding more details or check your historical data.",
              variant: "default"
           });
         }
         
-        setProposedEntries(result.filteredEntries); 
-        
-        // Open modal if AI returned any entries for review, even if some were filtered by AI rules.
-        // If rawAiOutputCount is > 0, it means AI attempted, so show modal.
-        // If filteredEntries has items, it means AI successfully produced some usable entries.
-        if (result.filteredEntries.length > 0 || (result.rawAiOutputCount > 0 && notes.trim() !== "")) {
+        if (finalEntries.length > 0 || (aiResult.rawAiOutputCount > 0 && notes.trim() !== "")) {
             setIsPreviewModalOpen(true);
         }
 
       } catch (error) {
         toast({
-          title: "Error Previewing Entries",
-          description: (error as Error).message || "Failed to preview entries.",
+          title: "Error Processing AI Entries",
+          description: (error as Error).message || "Failed to process entries with AI.",
           variant: "destructive",
         });
       }
     });
   };
+  
+  const handleEditTime = () => {
+    startTransitionProcessing(async () => {
+        try {
+            const currentEntries = await getUserProposedEntriesAction();
+            if (currentEntries.length === 0) {
+                toast({
+                    title: "No Entries to Edit",
+                    description: "There are no time entries to edit. Use Timesheet AI to generate some first.",
+                    variant: "default",
+                });
+                setProposedEntries([]); // Ensure local state is also empty
+                return;
+            }
+            setProposedEntries(currentEntries);
+            setIsPreviewModalOpen(true);
+        } catch (error) {
+            toast({
+                title: "Error Loading Entries for Editing",
+                description: (error as Error).message || "Could not load entries.",
+                variant: "destructive",
+            });
+        }
+    });
+  };
+
 
   const handleSubmitTime = () => {
-    // Initial check based on current state, but will fetch fresh data before actual submission.
-    if (proposedEntries.length === 0) {
-      toast({
-        title: "No Entries",
-        description: "There are no entries to submit. Preview entries first.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    startTransitionSubmit(async () => {
-      try {
-        // Fetch the latest proposed entries from the DB before submitting
+    if (proposedEntries.length === 0 && notes.trim() === "") {
+       // Check if proposedEntries in state is empty. If so, try to load from DB.
+       startTransitionProcessing(async () => {
         const latestProposedEntriesFromDb = await getUserProposedEntriesAction();
-
         if (latestProposedEntriesFromDb.length === 0) {
-          toast({
-            title: "No Entries to Submit",
-            description: "The list of proposed entries is empty. Please preview and save entries first.",
-            variant: "destructive",
-          });
-          setProposedEntries([]); // Sync local state
-          return;
+            toast({
+                title: "No Entries",
+                description: "There are no entries to submit. Use Timesheet AI or Edit Time first.",
+                variant: "destructive",
+            });
+            return;
         }
-        
-        const result = await submitTimeEntriesAction(latestProposedEntriesFromDb);
+        setProposedEntries(latestProposedEntriesFromDb); // Update state
+        // Now proceed to submit these entries
+        performSubmit(latestProposedEntriesFromDb);
+       });
+    } else if (proposedEntries.length === 0 && notes.trim() !== "") {
+        toast({
+            title: "No Entries Generated",
+            description: "Please use Timesheet AI or Edit Time to create/review entries before submitting.",
+            variant: "destructive",
+        });
+    }
+     else {
+      // Entries exist in state, proceed with them
+      performSubmit(proposedEntries);
+    }
+  };
+
+  const performSubmit = (entriesToSubmit: TimeEntry[]) => {
+    startTransitionProcessing(async () => {
+      try {
+        const result = await submitTimeEntriesAction(entriesToSubmit);
         toast({
           title: result.success ? "Success" : "Error",
           description: result.message,
@@ -193,7 +247,7 @@ export function TimeEntryForm() {
         });
         if (result.success) {
           setProposedEntries([]); 
-          // Refresh historical data as new entries have been added to DB and external system
+          await saveUserProposedEntriesAction([]); // Clear from DB as well
           handleRefreshHistoricalDataFromScript(); 
         }
       } catch (error) {
@@ -225,7 +279,6 @@ export function TimeEntryForm() {
             });
           }
         } else {
-          // Data from DB might be returned on script failure, so update state regardless
           setLocalHistoricalData(scriptResult.data || []); 
           toast({
             title: "Failed to Refresh Data",
@@ -245,7 +298,7 @@ export function TimeEntryForm() {
   }, [startTransitionHistoricalRefresh, toast]);
 
   const handleSaveModalEntries = (updatedEntries: TimeEntry[]) => {
-    startTransitionPreview(async () => { 
+    startTransitionProcessing(async () => { 
         try {
             await saveUserProposedEntriesAction(updatedEntries);
             setProposedEntries(updatedEntries);
@@ -264,7 +317,7 @@ export function TimeEntryForm() {
   };
 
   const handleSaveShorthand = (newShorthand: string) => {
-    startTransitionPreview(async () => { 
+    startTransitionProcessing(async () => { 
         try {
             await saveUserShorthandAction(newShorthand);
             setShorthandNotes(newShorthand);
@@ -338,7 +391,7 @@ export function TimeEntryForm() {
             <DropdownMenuContent align="start">
               <DropdownMenuItem 
                 onClick={handleRefreshHistoricalDataFromScript} 
-                disabled={isPendingHistoricalRefresh || isPendingInitialLoad} // Disable if any historical operation is pending
+                disabled={isPendingHistoricalRefresh || isPendingInitialLoad}
                 aria-label="Refresh historical data from script"
               >
                 <RefreshCw className="mr-2 h-4 w-4" /> Refresh Data
@@ -355,22 +408,39 @@ export function TimeEntryForm() {
         </div>
         <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
           <Button 
-            onClick={handlePreviewEntries} 
+            onClick={handleTimesheetAI} 
             disabled={isLoading || !notes.trim()} 
             className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90"
+            aria-label="Use Timesheet AI to generate or add entries"
           >
-            <ListChecks className="mr-2 h-5 w-5" /> Preview Entries
+            <Brain className="mr-2 h-5 w-5" /> Timesheet AI
+          </Button>
+           <Button 
+            onClick={handleEditTime} 
+            disabled={isLoading} 
+            variant="outline"
+            className="w-full sm:w-auto"
+            aria-label="Edit existing time entries"
+          >
+            <Edit3 className="mr-2 h-5 w-5" /> Edit Time
           </Button>
           <Button 
             onClick={handleSubmitTime} 
-            disabled={isLoading || proposedEntries.length === 0} 
+            disabled={isLoading || (proposedEntries.length === 0 && !notes.trim())}
             className="w-full sm:w-auto bg-accent text-accent-foreground hover:bg-accent/90"
+            aria-label="Submit current time entries"
           >
             <Send className="mr-2 h-5 w-5" /> Submit Time
           </Button>
         </div>
       </CardFooter>
 
+      <GenerateOrAddModal
+        isOpen={isGenerateOrAddModalOpen}
+        onClose={() => setIsGenerateOrAddModalOpen(false)}
+        onGenerateNew={() => processAiEntries('generate')}
+        onAddToExisting={() => processAiEntries('add')}
+      />
       <PreviewEntriesModal
         isOpen={isPreviewModalOpen}
         onClose={() => setIsPreviewModalOpen(false)}
@@ -392,3 +462,4 @@ export function TimeEntryForm() {
     </Card>
   );
 }
+
