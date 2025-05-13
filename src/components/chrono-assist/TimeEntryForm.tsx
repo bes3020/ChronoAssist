@@ -24,7 +24,7 @@ import {
   saveUserProposedEntriesAction
 } from '@/lib/actions';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Lightbulb, ListChecks, History, Send, ChevronDown, Eye, RefreshCw, NotebookPen, Edit3, Brain } from 'lucide-react';
+import { Lightbulb, History, Send, ChevronDown, Eye, RefreshCw, NotebookPen, Edit3, Brain, ClipboardList } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -415,23 +415,33 @@ export function TimeEntryForm() {
           >
             <Brain className="mr-2 h-5 w-5" /> Timesheet AI
           </Button>
-           <Button 
-            onClick={handleEditTime} 
-            disabled={isLoading} 
-            variant="outline"
-            className="w-full sm:w-auto"
-            aria-label="Edit existing time entries"
-          >
-            <Edit3 className="mr-2 h-5 w-5" /> Edit Time
-          </Button>
-          <Button 
-            onClick={handleSubmitTime} 
-            disabled={isLoading || (proposedEntries.length === 0 && !notes.trim())}
-            className="w-full sm:w-auto bg-accent text-accent-foreground hover:bg-accent/90"
-            aria-label="Submit current time entries"
-          >
-            <Send className="mr-2 h-5 w-5" /> Submit Time
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                disabled={isLoading}
+                className="w-full sm:w-auto bg-accent text-accent-foreground hover:bg-accent/90"
+                aria-label="Time entry options"
+              >
+                <ClipboardList className="mr-2 h-5 w-5" /> Time Entry <ChevronDown className="ml-2 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
+                onClick={handleEditTime}
+                disabled={isLoading}
+                aria-label="Edit existing time entries"
+              >
+                <Edit3 className="mr-2 h-4 w-4" /> Edit / Review Entries
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleSubmitTime}
+                disabled={isLoading || (proposedEntries.length === 0 && !notes.trim())}
+                aria-label="Submit current time entries"
+              >
+                <Send className="mr-2 h-4 w-4" /> Submit Entries
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </CardFooter>
 
@@ -462,4 +472,3 @@ export function TimeEntryForm() {
     </Card>
   );
 }
-
