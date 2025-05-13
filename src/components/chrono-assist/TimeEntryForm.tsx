@@ -120,18 +120,28 @@ export function TimeEntryForm() {
     }
     startTransitionPreview(async () => {
       try {
-        const entries = await getProposedEntriesAction(notes, shorthandNotes); 
-        if (entries.length === 0 && notes.trim() !== "") {
+        const result = await getProposedEntriesAction(notes, shorthandNotes);
+        
+        if (result.rawAiOutputCount > 0 && result.filteredEntries.length === 0) {
+          toast({
+            title: "Suggestions Incomplete",
+            description: "AI made suggestions, but they were incomplete (missing Project, Activity, or WorkItem). Please review your notes or historical data.",
+          });
+        } else if (result.rawAiOutputCount === 0 && notes.trim() !== "") {
            toast({
             title: "No Suggestions",
             description: "AI could not generate suggestions. Try adding more details or check historical data.",
           });
         }
-        setProposedEntries(entries); 
-        setIsPreviewModalOpen(true);
+        
+        setProposedEntries(result.filteredEntries); 
+        if (result.filteredEntries.length > 0 || result.rawAiOutputCount > 0) { // Open modal if AI attempted or succeeded
+            setIsPreviewModalOpen(true);
+        }
+
       } catch (error) {
         toast({
-          title: "Error",
+          title: "Error Previewing Entries",
           description: (error as Error).message || "Failed to preview entries.",
           variant: "destructive",
         });
@@ -357,4 +367,3 @@ export function TimeEntryForm() {
     </Card>
   );
 }
-

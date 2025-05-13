@@ -1,4 +1,3 @@
-
 'use server';
 import type { InitialTimeEntryInput, InitialTimeEntryOutput } from '@/ai/flows/initial-time-entry-prompt';
 import { initialTimeEntry } from '@/ai/flows/initial-time-entry-prompt';
@@ -18,13 +17,13 @@ let proposedEntryIdCounter = 0;
 const generateProposedEntryId = () => `proposed_${Date.now()}_${proposedEntryIdCounter++}`;
 
 
-export async function getProposedEntriesAction(notes: string, shorthandNotes?: string): Promise<TimeEntry[]> {
+export async function getProposedEntriesAction(notes: string, shorthandNotes?: string): Promise<{ rawAiOutputCount: number; filteredEntries: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId); // Ensure parent records exist
 
   if (!notes.trim()) {
     await db.clearProposedEntries(userId); // Clear any old proposed entries if notes are empty
-    return [];
+    return { rawAiOutputCount: 0, filteredEntries: [] };
   }
 
   try {
@@ -46,20 +45,27 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
       shorthandNotes: shorthandNotes?.trim() ? shorthandNotes : undefined,
     };
     const aiOutput: InitialTimeEntryOutput = await initialTimeEntry(aiInput);
+    console.log("Raw AI Output:", JSON.stringify(aiOutput, null, 2));
 
-    const proposedEntries: TimeEntry[] = aiOutput.map(entry => ({
+
+    const filteredEntries: TimeEntry[] = aiOutput.map(entry => ({
       ...entry,
       id: generateProposedEntryId(), 
       Hours: Number(entry.Hours) || 0, 
     })).filter(entry => entry.Project && entry.Activity && entry.WorkItem); 
     
-    db.saveProposedEntries(userId, proposedEntries); // Save to DB
-    return proposedEntries;
+    console.log("Filtered Proposed Entries:", JSON.stringify(filteredEntries, null, 2));
+    
+    db.saveProposedEntries(userId, filteredEntries); // Save to DB
+    return { rawAiOutputCount: aiOutput.length, filteredEntries };
 
   } catch (error) {
     console.error("Error getting proposed entries from AI:", error);
     // Don't clear proposed entries here, as there might be valid old ones
-    throw new Error("Failed to generate time entry suggestions. Please try again.");
+    // Instead, return the current state or an empty array with a zero count
+    const existingProposed = db.getProposedEntries(userId);
+    return { rawAiOutputCount: 0, filteredEntries: existingProposed };
+    // throw new Error("Failed to generate time entry suggestions. Please try again.");
   }
 }
 
@@ -276,4 +282,3 @@ export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promi
     return { success: false, message: "Failed to update proposed entries." };
   }
 }
-
