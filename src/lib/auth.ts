@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 const USER_ID_COOKIE_NAME = 'chrono_anonymous_user_id';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
 
-export function getAnonymousUserId(): string {
+export async function getAnonymousUserId(): Promise<string> {
   const cookieStore = cookies();
   let userId = cookieStore.get(USER_ID_COOKIE_NAME)?.value;
 
@@ -23,3 +23,4 @@ export function getAnonymousUserId(): string {
   }
   return userId;
 }
+

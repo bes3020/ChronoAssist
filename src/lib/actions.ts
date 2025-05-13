@@ -19,7 +19,7 @@ const generateProposedEntryId = () => `proposed_${Date.now()}_${proposedEntryIdC
 
 
 export async function getProposedEntriesAction(notes: string, shorthandNotes?: string): Promise<TimeEntry[]> {
-  const userId = getAnonymousUserId();
+  const userId = await getAnonymousUserId();
   if (!notes.trim()) {
     await db.clearProposedEntries(userId); // Clear any old proposed entries if notes are empty
     return [];
@@ -61,7 +61,7 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
 }
 
 export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ success: boolean; message: string }> {
-  const userId = getAnonymousUserId();
+  const userId = await getAnonymousUserId();
   if (!entries || entries.length === 0) {
     return { success: false, message: "No entries to submit." };
   }
@@ -121,7 +121,7 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
 
 
 export async function getHistoricalDataAction(): Promise<{ success: boolean; message: string, data: TimeEntry[] }> {
-  const userId = getAnonymousUserId();
+  const userId = await getAnonymousUserId();
   console.log(`Fetching historical data for user ${userId}...`);
 
   // Optional: Check if DB has "fresh enough" data to avoid running the script too often
@@ -203,12 +203,12 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
 // --- Actions for Shorthand and Main Notes ---
 
 export async function getUserShorthandAction(): Promise<string> {
-  const userId = getAnonymousUserId();
+  const userId = await getAnonymousUserId();
   return db.getShorthand(userId) || '';
 }
 
 export async function saveUserShorthandAction(text: string): Promise<{ success: boolean; message: string }> {
-  const userId = getAnonymousUserId();
+  const userId = await getAnonymousUserId();
   try {
     db.saveShorthand(userId, text);
     revalidatePath('/'); // Revalidate to reflect changes if displayed elsewhere
@@ -220,12 +220,12 @@ export async function saveUserShorthandAction(text: string): Promise<{ success: 
 }
 
 export async function getUserMainNotesAction(): Promise<string> {
-  const userId = getAnonymousUserId();
+  const userId = await getAnonymousUserId();
   return db.getMainNotes(userId) || '';
 }
 
 export async function saveUserMainNotesAction(text: string): Promise<{ success: boolean; message: string }> {
-  const userId = getAnonymousUserId();
+  const userId = await getAnonymousUserId();
   try {
     db.saveMainNotes(userId, text);
     // No revalidatePath needed if main notes are only used in the form's state
@@ -239,12 +239,12 @@ export async function saveUserMainNotesAction(text: string): Promise<{ success: 
 // --- Actions for Proposed Entries (if needed beyond getProposedEntriesAction) ---
 
 export async function getUserProposedEntriesAction(): Promise<TimeEntry[]> {
-  const userId = getAnonymousUserId();
+  const userId = await getAnonymousUserId();
   return db.getProposedEntries(userId);
 }
 
 export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promise<{ success: boolean; message: string }> {
-  const userId = getAnonymousUserId();
+  const userId = await getAnonymousUserId();
   try {
     db.saveProposedEntries(userId, entries);
     revalidatePath('/');
@@ -254,3 +254,4 @@ export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promi
     return { success: false, message: "Failed to update proposed entries." };
   }
 }
+
