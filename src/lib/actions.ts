@@ -122,23 +122,30 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
   }
 }
 
-
-export async function getHistoricalDataAction(): Promise<{ success: boolean; message: string, data: TimeEntry[] }> {
+/**
+ * Fetches historical data directly from the local database.
+ */
+export async function getHistoricalDataAction(): Promise<{ success: boolean; message: string; data: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensure parent records exist
+  db.ensureUserRecordsExist(userId);
+  try {
+    console.log(`Fetching historical data from DB for user ${userId}...`);
+    const data = db.getHistoricalEntries(userId); // Default 3 months or adjust as needed
+    return { success: true, message: "Historical data fetched from local storage.", data };
+  } catch (error) {
+    console.error("Error fetching historical data from DB:", error);
+    return { success: false, message: `Error fetching data from local storage: ${(error as Error).message}`, data: [] };
+  }
+}
 
-  console.log(`Fetching historical data for user ${userId}...`);
+/**
+ * Refreshes historical data by running the Python scraping script and updating the database.
+ */
+export async function refreshHistoricalDataFromScriptAction(): Promise<{ success: boolean; message: string, data: TimeEntry[] }> {
+  const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); 
 
-  // Optional: Check if DB has "fresh enough" data to avoid running the script too often
-  // For now, we always run the script if historical data is explicitly requested.
-  // A more advanced check:
-  // const lastFetchTimestamp = db.getLatestHistoricalEntryTimestamp(userId);
-  // if (lastFetchTimestamp && (new Date().getTime() - new Date(lastFetchTimestamp).getTime()) < SOME_THRESHOLD_MS) {
-  //   const dataFromDb = db.getHistoricalEntries(userId);
-  //   return { success: true, message: "Historical data fetched from local cache.", data: dataFromDb };
-  // }
-
-  console.log("Attempting to fetch historical data using Python/Helium script...");
+  console.log(`Attempting to refresh historical data from script for user ${userId}...`);
   const pythonScriptPath = path.join(process.cwd(), 'src', 'scripts', 'scrape_timesheets.py');
   
   try {
@@ -146,7 +153,6 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
 
     if (pythonProcess.error) {
       console.error('Failed to start Python script:', pythonProcess.error);
-      // Return existing DB data as fallback or empty if none
       const existingData = db.getHistoricalEntries(userId);
       return { success: false, message: `Python script failed to start. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
     }
@@ -183,13 +189,13 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
     
     const processedScrapedData: TimeEntry[] = scrapedEntries.map((entry, index) => ({
         ...entry,
-        id: `scraped_${Date.now()}_${index}`, // Generate a temporary client_id for these new entries
+        id: `scraped_${Date.now()}_${index}`, 
         Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0] 
     }));
 
-    db.addHistoricalEntries(userId, processedScrapedData); // Add new entries to DB
+    db.addHistoricalEntries(userId, processedScrapedData); 
     
-    const allHistoricalData = db.getHistoricalEntries(userId, 3); // Fetch all, including newly added, limited to 3 months for display
+    const allHistoricalData = db.getHistoricalEntries(userId, 3); 
 
     if (allHistoricalData.length === 0) {
         return { success: true, message: "Successfully fetched data, but no time entries were found.", data: [] };
@@ -209,16 +215,16 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
 
 export async function getUserShorthandAction(): Promise<string> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensure record exists before trying to get
+  db.ensureUserRecordsExist(userId); 
   return db.getShorthand(userId) || '';
 }
 
 export async function saveUserShorthandAction(text: string): Promise<{ success: boolean; message: string }> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensure record exists before trying to save (though saveShorthand would create it)
+  db.ensureUserRecordsExist(userId); 
   try {
     db.saveShorthand(userId, text);
-    revalidatePath('/'); // Revalidate to reflect changes if displayed elsewhere
+    revalidatePath('/'); 
     return { success: true, message: "Shorthand saved." };
   } catch (error) {
     console.error("Error saving shorthand:", error);
@@ -228,16 +234,15 @@ export async function saveUserShorthandAction(text: string): Promise<{ success: 
 
 export async function getUserMainNotesAction(): Promise<string> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensure record exists
+  db.ensureUserRecordsExist(userId); 
   return db.getMainNotes(userId) || '';
 }
 
 export async function saveUserMainNotesAction(text: string): Promise<{ success: boolean; message: string }> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensure record exists
+  db.ensureUserRecordsExist(userId); 
   try {
     db.saveMainNotes(userId, text);
-    // No revalidatePath needed if main notes are only used in the form's state
     return { success: true, message: "Notes saved." };
   } catch (error) {
     console.error("Error saving main notes:", error);
@@ -249,13 +254,13 @@ export async function saveUserMainNotesAction(text: string): Promise<{ success: 
 
 export async function getUserProposedEntriesAction(): Promise<TimeEntry[]> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensure record exists
+  db.ensureUserRecordsExist(userId); 
   return db.getProposedEntries(userId);
 }
 
 export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promise<{ success: boolean; message: string }> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensure record exists before saving proposed entries
+  db.ensureUserRecordsExist(userId); 
   try {
     db.saveProposedEntries(userId, entries);
     revalidatePath('/');

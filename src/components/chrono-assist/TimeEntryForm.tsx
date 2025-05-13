@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useTransition, useEffect, useCallback } from 'react';
@@ -13,7 +12,8 @@ import { ShorthandModal } from './ShorthandModal';
 import { 
   getProposedEntriesAction, 
   submitTimeEntriesAction, 
-  getHistoricalDataAction,
+  getHistoricalDataAction, // Fetches from DB
+  refreshHistoricalDataFromScriptAction, // Fetches from Python Script
   getUserShorthandAction,
   saveUserShorthandAction,
   getUserMainNotesAction,
@@ -42,17 +42,16 @@ export function TimeEntryForm() {
   
   const [isPendingPreview, startTransitionPreview] = useTransition();
   const [isPendingSubmit, startTransitionSubmit] = useTransition();
-  const [isPendingHistorical, startTransitionHistorical] = useTransition();
+  const [isPendingHistoricalRefresh, startTransitionHistoricalRefresh] = useTransition();
   const [isPendingInitialLoad, startTransitionInitialLoad] = useTransition();
 
   const { toast } = useToast();
 
-  const isLoading = isPendingPreview || isPendingSubmit || isPendingHistorical || isPendingInitialLoad;
+  const isLoading = isPendingPreview || isPendingSubmit || isPendingHistoricalRefresh || isPendingInitialLoad;
 
   const debouncedSaveNotes = useDebouncedCallback(async (newNotes: string) => {
     await saveUserMainNotesAction(newNotes);
-    // Optional: toast notification for saved notes, though might be too noisy
-  }, 1000); // Save after 1 second of inactivity
+  }, 1000); 
 
   const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newNotes = e.target.value;
@@ -60,32 +59,31 @@ export function TimeEntryForm() {
     debouncedSaveNotes(newNotes);
   };
   
-  // Load initial data (main notes, shorthand, historical, proposed)
   useEffect(() => {
     startTransitionInitialLoad(async () => {
       try {
-        const [loadedNotes, loadedShorthand, historicalResult, loadedProposed] = await Promise.all([
+        const [loadedNotes, loadedShorthand, dbHistoricalResult, loadedProposed] = await Promise.all([
           getUserMainNotesAction(),
           getUserShorthandAction(),
-          getHistoricalDataAction(), // Fetch historical data on initial load
+          getHistoricalDataAction(), // Fetch historical data from DB on initial load
           getUserProposedEntriesAction()
         ]);
         setNotes(loadedNotes);
         setShorthandNotes(loadedShorthand);
         
-        if (historicalResult.success) {
-          setLocalHistoricalData(historicalResult.data);
-          if (historicalResult.data.length === 0 && !historicalResult.message.includes("Python script")) {
+        if (dbHistoricalResult.success) {
+          setLocalHistoricalData(dbHistoricalResult.data);
+          if (dbHistoricalResult.data.length === 0) {
              toast({
               title: "Historical Data",
-              description: "No historical data found. You can try fetching it or proceed without it.",
+              description: "No historical data found in local storage. You can try fetching fresh data using 'Refresh Data'.",
               variant: "default"
             });
           }
         } else {
           toast({
             title: "Failed to Load Historical Data",
-            description: historicalResult.message,
+            description: dbHistoricalResult.message,
             variant: "destructive",
           });
         }
@@ -115,21 +113,21 @@ export function TimeEntryForm() {
     if (localHistoricalData.length === 0) {
       toast({
         title: "Historical Data Missing",
-        description: "Historical data is empty. Please load historical data first before previewing entries.",
+        description: "Historical data is empty. Please load historical data first before previewing entries (use 'Refresh Data' under 'Historical Data' menu).",
         variant: "destructive",
       });
       return;
     }
     startTransitionPreview(async () => {
       try {
-        const entries = await getProposedEntriesAction(notes, shorthandNotes); // Removed localHistoricalData
+        const entries = await getProposedEntriesAction(notes, shorthandNotes); 
         if (entries.length === 0 && notes.trim() !== "") {
            toast({
             title: "No Suggestions",
             description: "AI could not generate suggestions. Try adding more details or check historical data.",
           });
         }
-        setProposedEntries(entries); // These are now from DB, but immediately reflect AI output
+        setProposedEntries(entries); 
         setIsPreviewModalOpen(true);
       } catch (error) {
         toast({
@@ -159,9 +157,9 @@ export function TimeEntryForm() {
           variant: result.success ? "default" : "destructive",
         });
         if (result.success) {
-          setProposedEntries([]); // Clear proposed entries from state
+          setProposedEntries([]); 
           // Refresh historical data as new entries have been added to DB and external system
-          handleGetHistoricalData(); 
+          handleRefreshHistoricalDataFromScript(); 
         }
       } catch (error) {
          toast({
@@ -173,30 +171,30 @@ export function TimeEntryForm() {
     });
   };
 
-  const handleGetHistoricalData = useCallback(() => {
-    startTransitionHistorical(async () => {
+  const handleRefreshHistoricalDataFromScript = useCallback(() => {
+    startTransitionHistoricalRefresh(async () => {
       try {
-        const result = await getHistoricalDataAction();
-        if (result.success) {
-          setLocalHistoricalData(result.data);
-          if (result.data.length > 0) {
+        const scriptResult = await refreshHistoricalDataFromScriptAction();
+        if (scriptResult.success) {
+          setLocalHistoricalData(scriptResult.data);
+          if (scriptResult.data.length > 0) {
             toast({
               title: "Historical Data Updated",
-              description: `Successfully fetched/updated ${result.data.length} historical entries.`,
+              description: scriptResult.message || `Successfully fetched/updated ${scriptResult.data.length} historical entries.`,
             });
           } else {
              toast({
               title: "Historical Data Empty",
-              description: result.message || "No historical time entries were found.",
+              description: scriptResult.message || "No historical time entries were found after refresh.",
               variant: "default"
             });
           }
         } else {
           // Data from DB might be returned on script failure, so update state regardless
-          setLocalHistoricalData(result.data || []); 
+          setLocalHistoricalData(scriptResult.data || []); 
           toast({
             title: "Failed to Refresh Data",
-            description: result.message || "Could not retrieve fresh historical data.",
+            description: scriptResult.message || "Could not retrieve fresh historical data.",
             variant: "destructive",
           });
         }
@@ -209,10 +207,10 @@ export function TimeEntryForm() {
         });
       }
     });
-  }, [startTransitionHistorical, toast]); // Added dependencies
+  }, [startTransitionHistoricalRefresh, toast]);
 
   const handleSaveModalEntries = (updatedEntries: TimeEntry[]) => {
-    startTransitionPreview(async () => { // Reuse preview transition or add a new one
+    startTransitionPreview(async () => { 
         try {
             await saveUserProposedEntriesAction(updatedEntries);
             setProposedEntries(updatedEntries);
@@ -231,7 +229,7 @@ export function TimeEntryForm() {
   };
 
   const handleSaveShorthand = (newShorthand: string) => {
-    startTransitionPreview(async () => { // Reuse preview transition or add new
+    startTransitionPreview(async () => { 
         try {
             await saveUserShorthandAction(newShorthand);
             setShorthandNotes(newShorthand);
@@ -304,9 +302,9 @@ export function TimeEntryForm() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               <DropdownMenuItem 
-                onClick={handleGetHistoricalData} 
-                disabled={isLoading}
-                aria-label="Refresh historical data"
+                onClick={handleRefreshHistoricalDataFromScript} 
+                disabled={isPendingHistoricalRefresh || isPendingInitialLoad} // Disable if any historical operation is pending
+                aria-label="Refresh historical data from script"
               >
                 <RefreshCw className="mr-2 h-4 w-4" /> Refresh Data
               </DropdownMenuItem>
@@ -343,7 +341,7 @@ export function TimeEntryForm() {
         onClose={() => setIsPreviewModalOpen(false)}
         entries={proposedEntries}
         onSave={handleSaveModalEntries}
-        historicalData={localHistoricalData} // For dropdowns in modal
+        historicalData={localHistoricalData} 
       />
       <HistoricalDataModal
         isOpen={isHistoricalModalOpen}
@@ -359,3 +357,4 @@ export function TimeEntryForm() {
     </Card>
   );
 }
+
