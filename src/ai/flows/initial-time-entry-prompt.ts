@@ -50,11 +50,11 @@ export async function initialTimeEntry(input: InitialTimeEntryInput): Promise<In
 
 const defaultPrompt = `You are an AI assistant designed to match user notes to time entries using historical data.
 
-Analyze the following notes provided by the user:
+Analyze the following notes provided by the user.  Each new line is a new time entry.  Only return the best match for each line.  If there is no date specified, use today's date: {{today}}.  If a weekday is specified, use this weeks date for that day:
 {{notes}}
 
 {{#if shorthandNotes}}
-Consider the following user-defined shorthand/abbreviations when interpreting the notes:
+Consider the following user-defined shorthand/abbreviations when interpreting the notes. 
 {{shorthandNotes}}
 {{/if}}
 
@@ -65,7 +65,7 @@ Historical Data:
 Date: {{this.Date}}, Project: {{this.Project}}, Activity: {{this.Activity}}, WorkItem: {{this.WorkItem}}, Comment: {{this.Comment}}
 {{/each}}
 
-Return a JSON array of time entries that match the user notes. Make sure the "Hours" field is a number (you should suggest a reasonable number of hours based on the notes, e.g. default to 1 or 2 if not specified).
+Return a JSON array of time entries that match the user notes. Make sure the "Hours" field is a number in .25 increments (you should suggest a reasonable number of hours based on the notes, e.g. default to 1 or 2 if not specified).
 Ensure all entries match the historical data provided for Project, Activity, and WorkItem, and extrapolate if needed.
 Format your response as JSON. Do not include any additional text or markdown specifiers like \`\`\`json or \`\`\`.
 `;
@@ -85,6 +85,7 @@ const initialTimeEntryFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await initialTimeEntryPrompt(input);
+    console.log('AI output:', output);
     // Ensure output is always an array, even if AI fails to produce valid JSON or returns null/undefined
     if (!output || !Array.isArray(output)) {
       console.warn('AI did not return a valid array. Returning empty array. Output:', output);

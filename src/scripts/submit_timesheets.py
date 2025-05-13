@@ -81,20 +81,20 @@ def submit_entries(entries_data):
                     # Format for Windows: "Tue 5/13" using %#m for non-padded month, %#d for non-padded day
                     formatted_date = date_obj.strftime("%a %#m/%#d")
                 except ValueError:
-                    log_message(f"Warning: Date '{date_string}' (entry index {x}) is not in YYYY-MM-DD format. Trying MM/DD/YYYY.")
+                    log_message(f"Warning: Date '{date_string}' (entry index {index}) is not in YYYY-MM-DD format. Trying MM/DD/YYYY.")
                     try:
                         # Try parsing MM/DD/YYYY
                         date_obj = datetime.strptime(date_string, '%m/%d/%Y')
                         formatted_date = date_obj.strftime("%a %#m/%#d")
                     except ValueError:
-                        log_message(f"ERROR: Date '{date_string}' (entry index {x}) is not in MM/DD/YYYY format either. Cannot format date.")
+                        log_message(f"ERROR: Date '{date_string}' (entry index {index}) is not in MM/DD/YYYY format either. Cannot format date.")
                 except TypeError:
-                        log_message(f"ERROR: Invalid type for date_string ('{date_string}', entry index {x}). Cannot format date.")
+                        log_message(f"ERROR: Invalid type for date_string ('{date_string}', entry index {index}). Cannot format date.")
             else:
-                log_message(f"ERROR: No 'Date' field found in entry at index {x}.")
+                log_message(f"ERROR: No 'Date' field found in entry at index {index}.")
 
             if not formatted_date:
-                log_message(f"Critical: Failed to determine or format date for entry at index {x} (original date string: '{date_string}'). Skipping this entry.")
+                log_message(f"Critical: Failed to determine or format date for entry at index {index} (original date string: '{date_string}'). Skipping this entry.")
                 continue # Skip to the next iteration of the for loop
 
             log_message(f"Processing entry {index + 1}/{len(entries_data)}: Date '{formatted_date}', Project '{entry.get('Project', 'N/A')}'")
@@ -115,77 +115,6 @@ def submit_entries(entries_data):
             press(TAB)
             press("Test comment")
             time.sleep(10)
-
-            # Date Field:
-            # date_field_selector = "selector_for_date_field" # e.g., helium.TextField("Date") or S("#date-input-id")
-            # if helium.S(date_field_selector).exists():
-            #     helium.write(entry.get('Date', ''), into=date_field_selector)
-            # else:
-            #     log_message(f"Date field ('{date_field_selector}') not found for entry {index + 1}.")
-
-            # Project Field (could be text input, dropdown, or combo box):
-            # project_field_selector = "selector_for_project_field" # e.g., helium.ComboBox("Project")
-            # if helium.S(project_field_selector).exists():
-            #     # If it's a ComboBox, you might need to select or type and select
-            #     # helium.select(project_field_selector, entry.get('Project', '')) 
-            #     # Or if it's a typeable field that then shows a dropdown:
-            #     helium.write(entry.get('Project', ''), into=project_field_selector)
-            #     # time.sleep(0.5) # Wait for dropdown to appear
-            #     # helium.click(entry.get('Project', '')) # Click the matching item in dropdown
-            # else:
-            #     log_message(f"Project field ('{project_field_selector}') not found for entry {index + 1}.")
-            
-            # Activity Field:
-            # activity_field_selector = "selector_for_activity_field"
-            # if helium.S(activity_field_selector).exists():
-            #     helium.write(entry.get('Activity', ''), into=activity_field_selector) # Or helium.select if it's a dropdown
-            # else:
-            #     log_message(f"Activity field ('{activity_field_selector}') not found for entry {index + 1}.")
-
-            # WorkItem Field:
-            # workitem_field_selector = "selector_for_workitem_field"
-            # if helium.S(workitem_field_selector).exists():
-            #     helium.write(entry.get('WorkItem', ''), into=workitem_field_selector) # Or helium.select
-            # else:
-            #     log_message(f"WorkItem field ('{workitem_field_selector}') not found for entry {index + 1}.")
-
-            # Hours Field:
-            # hours_field_selector = "selector_for_hours_field"
-            # if helium.S(hours_field_selector).exists():
-            #     helium.write(str(entry.get('Hours', 0)), into=hours_field_selector)
-            # else:
-            #     log_message(f"Hours field ('{hours_field_selector}') not found for entry {index + 1}.")
-
-            # Comment Field:
-            # comment_field_selector = "selector_for_comment_field"
-            # if helium.S(comment_field_selector).exists():
-            #     helium.write(entry.get('Comment', ''), into=comment_field_selector)
-            # else:
-            #     log_message(f"Comment field ('{comment_field_selector}') not found for entry {index + 1}.")
-
-            # Save or Confirm this specific entry/line (if applicable for XYZ.com):
-            # save_line_button_selector = "selector_for_save_line_button"
-            # if helium.S(save_line_button_selector).exists():
-            #    helium.click(save_line_button_selector)
-            #    log_message(f"Clicked 'Save Line' for entry {index + 1}. Waiting for confirmation...")
-            #    time.sleep(2) # Adjust wait time for save/confirmation
-            # else:
-            #    log_message(f"'Save Line' button ('{save_line_button_selector}') not found or not applicable for entry {index + 1}.")
-            
-            #log_message(f"Placeholder: Entry {index + 1} data (Date: {entry.get('Date')}, Project: {entry.get('Project')}) fields would be filled here.")
-            # === END OF HELIUM PLACEHOLDERS FOR DATA ENTRY ===
-            time.sleep(0.5) # Small delay between processing each entry, can be adjusted
-
-        # 3. Final submission of the entire timesheet (if applicable for XYZ.com)
-        # This step depends on whether entries are saved individually or as a batch.
-        # final_submit_button_selector = "selector_for_final_submit_button" # e.g., helium.Button("Submit Timesheet")
-        # if helium.S(final_submit_button_selector).exists():
-        #    log_message("Attempting final submission of the timesheet...")
-        #    helium.click(final_submit_button_selector)
-        #    time.sleep(5) # Wait for submission confirmation (adjust as needed)
-        #    log_message("Timesheet final submission initiated (placeholder). Check XYZ.com for confirmation.")
-        # else:
-        #    log_message(f"Final 'Submit Timesheet' button ('{final_submit_button_selector}') not found. Entries might be saved individually or another process is needed.")
         
         log_message("All entries processed by script (using placeholders).")
         # If successful, return a JSON success message
