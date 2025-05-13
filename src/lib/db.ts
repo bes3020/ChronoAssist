@@ -1,4 +1,3 @@
-
 import Database from 'better-sqlite3';
 import type { TimeEntry } from '@/types/time-entry';
 import crypto from 'crypto';
@@ -48,7 +47,7 @@ export function initializeDb() {
       entry_hash TEXT NOT NULL UNIQUE, -- To prevent exact duplicates for the same user
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES user_shorthand(user_id) ON DELETE CASCADE 
-        DEFERRABLE INITIALLY DEFERRED, -- Example of linking, though not strictly necessary if user_id is just a cookie
+        DEFERRABLE INITIALLY DEFERRED, 
       FOREIGN KEY (user_id) REFERENCES user_main_notes(user_id) ON DELETE CASCADE
         DEFERRABLE INITIALLY DEFERRED
     );
@@ -121,6 +120,18 @@ export function saveMainNotes(userId: string, text: string): void {
   `);
   stmt.run(userId, text);
 }
+
+// Function to ensure user_id exists in parent tables (user_shorthand, user_main_notes)
+export function ensureUserRecordsExist(userId: string): void {
+  // Calling saveShorthand and saveMainNotes with current or empty values
+  // ensures the records exist due to their UPSERT (INSERT ON CONFLICT DO UPDATE) logic.
+  const currentShorthand = getShorthand(userId);
+  saveShorthand(userId, currentShorthand || '');
+
+  const currentMainNotes = getMainNotes(userId);
+  saveMainNotes(userId, currentMainNotes || '');
+}
+
 
 // Historical Entries
 export function getHistoricalEntries(userId: string, limitLastMonths: number | null = 3): TimeEntry[] {

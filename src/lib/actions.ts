@@ -1,4 +1,3 @@
-
 'use server';
 import type { InitialTimeEntryInput, InitialTimeEntryOutput } from '@/ai/flows/initial-time-entry-prompt';
 import { initialTimeEntry } from '@/ai/flows/initial-time-entry-prompt';
@@ -20,6 +19,8 @@ const generateProposedEntryId = () => `proposed_${Date.now()}_${proposedEntryIdC
 
 export async function getProposedEntriesAction(notes: string, shorthandNotes?: string): Promise<TimeEntry[]> {
   const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensure parent records exist
+
   if (!notes.trim()) {
     await db.clearProposedEntries(userId); // Clear any old proposed entries if notes are empty
     return [];
@@ -62,6 +63,8 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
 
 export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ success: boolean; message: string }> {
   const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensure parent records exist
+
   if (!entries || entries.length === 0) {
     return { success: false, message: "No entries to submit." };
   }
@@ -122,6 +125,8 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
 
 export async function getHistoricalDataAction(): Promise<{ success: boolean; message: string, data: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensure parent records exist
+
   console.log(`Fetching historical data for user ${userId}...`);
 
   // Optional: Check if DB has "fresh enough" data to avoid running the script too often
@@ -204,11 +209,13 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
 
 export async function getUserShorthandAction(): Promise<string> {
   const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensure record exists before trying to get
   return db.getShorthand(userId) || '';
 }
 
 export async function saveUserShorthandAction(text: string): Promise<{ success: boolean; message: string }> {
   const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensure record exists before trying to save (though saveShorthand would create it)
   try {
     db.saveShorthand(userId, text);
     revalidatePath('/'); // Revalidate to reflect changes if displayed elsewhere
@@ -221,11 +228,13 @@ export async function saveUserShorthandAction(text: string): Promise<{ success: 
 
 export async function getUserMainNotesAction(): Promise<string> {
   const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensure record exists
   return db.getMainNotes(userId) || '';
 }
 
 export async function saveUserMainNotesAction(text: string): Promise<{ success: boolean; message: string }> {
   const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensure record exists
   try {
     db.saveMainNotes(userId, text);
     // No revalidatePath needed if main notes are only used in the form's state
@@ -240,11 +249,13 @@ export async function saveUserMainNotesAction(text: string): Promise<{ success: 
 
 export async function getUserProposedEntriesAction(): Promise<TimeEntry[]> {
   const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensure record exists
   return db.getProposedEntries(userId);
 }
 
 export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promise<{ success: boolean; message: string }> {
   const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensure record exists before saving proposed entries
   try {
     db.saveProposedEntries(userId, entries);
     revalidatePath('/');
