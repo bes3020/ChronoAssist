@@ -29,6 +29,7 @@ def scrape_timesheet_data():
     """
     Scrapes timesheet data from XYZ.com.
     This is a conceptual script and needs actual selectors and logic for XYZ.com.
+    Hours are generally not scraped or considered essential for historical context for AI.
     """
     entries = []
     driver = None
@@ -75,6 +76,7 @@ def scrape_timesheet_data():
         
         max_scrolls = 4 
         scroll_count = 0
+        latest_date_this_scroll = datetime.now() # Initialize with current date
 
         while scroll_count < max_scrolls:     
             try:
@@ -84,30 +86,30 @@ def scrape_timesheet_data():
                 project_cells = find_all(S("input[aria-label='Project']"))
                 activity_cells = find_all(S("input[aria-label='Activity']"))
                 workitem_cells = find_all(S("input[aria-label='Work item']"))
-                #hours_cells = find_all(S("input[aria-label='Billable hours']"))
+                # hours_cells are not reliably scraped or needed for AI context.
                 external_comments_cells = find_all(S("input[aria-label='External comment']"))
                 row_idx = 0
-                for dates in date_cells: 
-                    log_message(f"Processing row: '{row_idx}'")
-                    date_str = dates.web_element.get_attribute('value').strip()
-                    log_message(f"Processing project: '{row_idx}'")
-                    project_str = project_cells[row_idx].web_element.get_attribute('value').strip()
-                    log_message(f"Processing activity: '{row_idx}'")
-                    activity_str = activity_cells[row_idx].web_element.get_attribute('value').strip()
-                    log_message(f"Processing work item: '{row_idx}'")
-                    workitem_str = workitem_cells[row_idx].web_element.get_attribute('value').strip()                    
-                    #log_message(f"Processing comment: '{row_idx}'")
-                    #comment_str = external_comments_cells[row_idx].web_element.get_attribute('value').strip()
-                    comment_str = ""
-                    # Date parsing and filtering
+                current_earliest_date = latest_date_this_scroll
+
+                if not date_cells: # No more data to process
+                    log_message("No date cells found in current view. Stopping scroll.")
+                    break
+
+                for dates_el in date_cells: 
+                    date_str = dates_el.web_element.get_attribute('value').strip()
+                    project_str = project_cells[row_idx].web_element.get_attribute('value').strip() if row_idx < len(project_cells) else ""
+                    activity_str = activity_cells[row_idx].web_element.get_attribute('value').strip() if row_idx < len(activity_cells) else ""
+                    workitem_str = workitem_cells[row_idx].web_element.get_attribute('value').strip() if row_idx < len(workitem_cells) else ""
+                    comment_str = external_comments_cells[row_idx].web_element.get_attribute('value').strip() if row_idx < len(external_comments_cells) else ""
+                    
+                    entry_date_obj = None
                     try:
-                        # Attempt to parse common date formats or the specific one from the site
-                        # Example: "MM/DD/YYYY", "YYYY-MM-DD"
                         entry_date_obj = datetime.strptime(date_str, "%m/%d/%Y") # Adjust format as needed
                         formatted_date_str = entry_date_obj.strftime("%Y-%m-%d") # Standardize
+                        if entry_date_obj < current_earliest_date:
+                            current_earliest_date = entry_date_obj
                     except ValueError:
                         log_message(f"Could not parse date string: '{date_str}' for row {row_idx}. Skipping date filter for this row, but will include.")
-                        # Fallback to using the raw date_str if parsing fails, or skip row
                         formatted_date_str = date_str # Or handle as an error / skip
                     
                     entry_data = {
@@ -115,15 +117,18 @@ def scrape_timesheet_data():
                         "Project": project_str, 
                         "Activity": activity_str, 
                         "WorkItem": workitem_str, 
-                        "Hours": "", # Placeholder for hours
+                        "Hours": "", # Hours are not critical for historical context for AI and often not reliably scraped.
                         "Comment": comment_str
                     }
                     entries.append(entry_data)
                     row_idx += 1
-                    latest_date_this_scroll = entry_date_obj
+                
+                latest_date_this_scroll = current_earliest_date
+
             except Exception as e_row:
-                log_message(f"Error processing a row ({row_idx}): {e_row}")
-                continue
+                log_message(f"Error processing a row set ({row_idx}): {e_row}")
+                # Potentially break or continue depending on severity
+                break 
             
             # Check if the latest date found in this scroll pass is older than 3 months
             if latest_date_this_scroll < three_months_ago_date:

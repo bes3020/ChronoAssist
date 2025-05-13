@@ -1,3 +1,4 @@
+
 'use server';
 import type { InitialTimeEntryInput, InitialTimeEntryOutput } from '@/ai/flows/initial-time-entry-prompt';
 import { initialTimeEntry } from '@/ai/flows/initial-time-entry-prompt';
@@ -29,13 +30,14 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
   try {
     const historicalEntriesFromDb = db.getHistoricalEntries(userId, 3); // Fetch last 3 months for AI context
 
+    // Prepare historical data for AI, excluding 'Hours' as it's not needed for context
     const historicalDataForAI = historicalEntriesFromDb.map(entry => ({ 
       Date: entry.Date,
       Project: entry.Project,
       Activity: entry.Activity,
       WorkItem: entry.WorkItem,
-      Hours: entry.Hours,
       Comment: entry.Comment,
+      // Hours field is intentionally omitted here
     }));
 
     const aiInput: InitialTimeEntryInput = {
@@ -130,7 +132,7 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
   db.ensureUserRecordsExist(userId);
   try {
     console.log(`Fetching historical data from DB for user ${userId}...`);
-    const data = db.getHistoricalEntries(userId); // Default 3 months or adjust as needed
+    const data = db.getHistoricalEntries(userId); 
     return { success: true, message: "Historical data fetched from local storage.", data };
   } catch (error) {
     console.error("Error fetching historical data from DB:", error);
@@ -177,7 +179,10 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
         return { success: true, message: `Historical data script ran but returned no new data. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
     }
 
-    let scrapedEntries: Omit<TimeEntry, 'id'>[];
+    // The Python script for scraping might not return 'Hours'.
+    // The TimeEntry type expects 'Hours', so we'll provide a default if it's missing.
+    type ScrapedEntryMaybeNoHours = Omit<TimeEntry, 'id' | 'Hours'> & { Hours?: number };
+    let scrapedEntries: ScrapedEntryMaybeNoHours[];
     try {
         scrapedEntries = JSON.parse(rawData);
     } catch (jsonError) {
@@ -190,7 +195,8 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
     const processedScrapedData: TimeEntry[] = scrapedEntries.map((entry, index) => ({
         ...entry,
         id: `scraped_${Date.now()}_${index}`, 
-        Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0] 
+        Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0],
+        Hours: typeof entry.Hours === 'number' ? entry.Hours : 0, // Default to 0 if hours are not provided/parsed
     }));
 
     db.addHistoricalEntries(userId, processedScrapedData); 
