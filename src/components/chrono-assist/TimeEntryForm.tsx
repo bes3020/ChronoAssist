@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useTransition, useEffect, useCallback } from 'react';
@@ -122,20 +123,29 @@ export function TimeEntryForm() {
       try {
         const result = await getProposedEntriesAction(notes, shorthandNotes);
         
-        if (result.rawAiOutputCount > 0 && result.filteredEntries.length === 0) {
-          toast({
-            title: "Suggestions Incomplete",
-            description: "AI made suggestions, but they were incomplete (missing Project, Activity, or WorkItem). Please review your notes or historical data.",
-          });
+        // No client-side filtering based on content here. AI output is trusted.
+        // If AI returns empty but notes were provided, it means AI found no matches.
+        // Toast logic remains to inform user about AI's output.
+        if (result.rawAiOutputCount > 0 && result.filteredEntries.length === 0 && notes.trim() !== "") {
+            toast({
+              title: "Suggestions Incomplete or Filtered",
+              description: "AI made suggestions, but they might have been incomplete or filtered out before display. Please review your notes or historical data if this is unexpected.",
+              variant: "default" 
+            });
         } else if (result.rawAiOutputCount === 0 && notes.trim() !== "") {
            toast({
-            title: "No Suggestions",
-            description: "AI could not generate suggestions. Try adding more details or check historical data.",
+            title: "No Suggestions Found",
+            description: "AI could not generate any time entry suggestions based on your notes. Try adding more details or check your historical data.",
+             variant: "default"
           });
         }
         
         setProposedEntries(result.filteredEntries); 
-        if (result.filteredEntries.length > 0 || result.rawAiOutputCount > 0) { // Open modal if AI attempted or succeeded
+        
+        // Open modal if AI returned any entries for review, even if some were filtered by AI rules.
+        // If rawAiOutputCount is > 0, it means AI attempted, so show modal.
+        // If filteredEntries has items, it means AI successfully produced some usable entries.
+        if (result.filteredEntries.length > 0 || (result.rawAiOutputCount > 0 && notes.trim() !== "")) {
             setIsPreviewModalOpen(true);
         }
 
@@ -150,6 +160,7 @@ export function TimeEntryForm() {
   };
 
   const handleSubmitTime = () => {
+    // Initial check based on current state, but will fetch fresh data before actual submission.
     if (proposedEntries.length === 0) {
       toast({
         title: "No Entries",
@@ -158,9 +169,23 @@ export function TimeEntryForm() {
       });
       return;
     }
+
     startTransitionSubmit(async () => {
       try {
-        const result = await submitTimeEntriesAction(proposedEntries);
+        // Fetch the latest proposed entries from the DB before submitting
+        const latestProposedEntriesFromDb = await getUserProposedEntriesAction();
+
+        if (latestProposedEntriesFromDb.length === 0) {
+          toast({
+            title: "No Entries to Submit",
+            description: "The list of proposed entries is empty. Please preview and save entries first.",
+            variant: "destructive",
+          });
+          setProposedEntries([]); // Sync local state
+          return;
+        }
+        
+        const result = await submitTimeEntriesAction(latestProposedEntriesFromDb);
         toast({
           title: result.success ? "Success" : "Error",
           description: result.message,
