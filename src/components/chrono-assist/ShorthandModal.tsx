@@ -18,7 +18,7 @@ interface ShorthandModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentShorthand: string;
-  onSave: (shorthand: string) => void;
+  onSave: (shorthand: string) => void; // This will call the server action via TimeEntryForm
 }
 
 export function ShorthandModal({ isOpen, onClose, currentShorthand, onSave }: ShorthandModalProps) {
@@ -31,7 +31,7 @@ export function ShorthandModal({ isOpen, onClose, currentShorthand, onSave }: Sh
   }, [isOpen, currentShorthand]);
 
   const handleSave = () => {
-    onSave(shorthand);
+    onSave(shorthand); // Call the prop which should trigger server action
     onClose();
   };
 

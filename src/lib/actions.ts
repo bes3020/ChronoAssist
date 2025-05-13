@@ -4,38 +4,38 @@ import type { InitialTimeEntryInput, InitialTimeEntryOutput } from '@/ai/flows/i
 import { initialTimeEntry } from '@/ai/flows/initial-time-entry-prompt';
 import { revalidatePath } from 'next/cache';
 import type { TimeEntry } from '@/types/time-entry';
-import { mockHistoricalDataForAI } from '@/lib/constants';
 import { subMonths, parseISO, isValid, format } from 'date-fns';
-// To use child_process, you might need to install types: npm install --save-dev @types/node
 import { spawnSync } from 'child_process';
 import path from 'path';
+import { getAnonymousUserId } from '@/lib/auth';
+import * as db from '@/lib/db'; // Import all exports from db.ts
 
-// Helper to generate unique IDs for client-side rendering
+// Initialize DB (safe to call multiple times, only runs once)
+db.initializeDb();
+
+// Helper to generate unique IDs for client-side rendering of proposed entries
 let proposedEntryIdCounter = 0;
-const generateProposedEntryId = () => `entry_${Date.now()}_${proposedEntryIdCounter++}`;
+const generateProposedEntryId = () => `proposed_${Date.now()}_${proposedEntryIdCounter++}`;
 
-let historicalEntryIdCounter = 0;
-const generateHistoricalEntryId = () => `hist_${Date.now()}_${historicalEntryIdCounter++}`;
 
-export async function getProposedEntriesAction(notes: string, historicalEntries: TimeEntry[], shorthandNotes?: string): Promise<TimeEntry[]> {
+export async function getProposedEntriesAction(notes: string, shorthandNotes?: string): Promise<TimeEntry[]> {
+  const userId = getAnonymousUserId();
   if (!notes.trim()) {
+    await db.clearProposedEntries(userId); // Clear any old proposed entries if notes are empty
     return [];
   }
 
   try {
-    // If historicalEntries is empty or undefined, map will result in an empty array.
-    // The AI model is expected to handle an empty historicalData array.
-    const historicalDataForAI = (historicalEntries && historicalEntries.length > 0)
-      ? historicalEntries.map(entry => ({ 
-        Date: entry.Date,
-        Project: entry.Project,
-        Activity: entry.Activity,
-        WorkItem: entry.WorkItem,
-        Hours: entry.Hours,
-        Comment: entry.Comment,
-      }))
-      : [];
+    const historicalEntriesFromDb = db.getHistoricalEntries(userId, 3); // Fetch last 3 months for AI context
 
+    const historicalDataForAI = historicalEntriesFromDb.map(entry => ({ 
+      Date: entry.Date,
+      Project: entry.Project,
+      Activity: entry.Activity,
+      WorkItem: entry.WorkItem,
+      Hours: entry.Hours,
+      Comment: entry.Comment,
+    }));
 
     const aiInput: InitialTimeEntryInput = {
       notes,
@@ -50,15 +50,18 @@ export async function getProposedEntriesAction(notes: string, historicalEntries:
       Hours: Number(entry.Hours) || 0, 
     })).filter(entry => entry.Project && entry.Activity && entry.WorkItem); 
     
+    db.saveProposedEntries(userId, proposedEntries); // Save to DB
     return proposedEntries;
 
   } catch (error) {
     console.error("Error getting proposed entries from AI:", error);
+    // Don't clear proposed entries here, as there might be valid old ones
     throw new Error("Failed to generate time entry suggestions. Please try again.");
   }
 }
 
 export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ success: boolean; message: string }> {
+  const userId = getAnonymousUserId();
   if (!entries || entries.length === 0) {
     return { success: false, message: "No entries to submit." };
   }
@@ -66,13 +69,11 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
   console.log("Attempting to submit time entries using Python/Helium script...");
   const pythonScriptPath = path.join(process.cwd(), 'src', 'scripts', 'submit_timesheets.py');
   
-  // Serialize entries to pass to the Python script
-  // We only need the core data, not the client-side 'id'
   const entriesForScript = entries.map(({ id, ...rest }) => rest);
   const entriesJsonString = JSON.stringify(entriesForScript);
 
   try {
-    const pythonProcess = spawnSync('python', [pythonScriptPath, entriesJsonString], { encoding: 'utf8', timeout: 300000 }); // 5 min timeout
+    const pythonProcess = spawnSync('python', [pythonScriptPath, entriesJsonString], { encoding: 'utf8', timeout: 300000 });
 
     if (pythonProcess.error) {
       console.error('Failed to start Python submission script:', pythonProcess.error);
@@ -81,7 +82,7 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
 
     const stderrOutput = pythonProcess.stderr?.toString().trim();
     if (stderrOutput) {
-        console.log('Python submission script STDERR:', stderrOutput); // Log stderr for debugging
+        console.log('Python submission script STDERR:', stderrOutput);
     }
     
     const stdoutOutput = pythonProcess.stdout?.toString().trim();
@@ -104,10 +105,13 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
       return { success: false, message: scriptResult.message || "Time submission script failed. Check server logs for Python script details." };
     }
     
+    // If script submission is successful, add these entries to historical data in DB
+    db.addHistoricalEntries(userId, entries.map(e => ({...e, id: e.id || generateProposedEntryId() /* ensure id for db if somehow missing */}))); // client_id becomes the main id here
+    db.clearProposedEntries(userId); // Clear proposed entries after successful submission
+
     console.log("Python submission script executed successfully:", scriptResult.message);
-    // Optionally, revalidate historical data if submission implies changes
     revalidatePath('/'); 
-    return { success: true, message: scriptResult.message || "Time entries submitted successfully via Python/Helium." };
+    return { success: true, message: scriptResult.message || "Time entries submitted successfully and saved to local history." };
 
   } catch (error) {
     console.error("Error submitting time entries via Python script:", error);
@@ -117,86 +121,136 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
 
 
 export async function getHistoricalDataAction(): Promise<{ success: boolean; message: string, data: TimeEntry[] }> {
+  const userId = getAnonymousUserId();
+  console.log(`Fetching historical data for user ${userId}...`);
+
+  // Optional: Check if DB has "fresh enough" data to avoid running the script too often
+  // For now, we always run the script if historical data is explicitly requested.
+  // A more advanced check:
+  // const lastFetchTimestamp = db.getLatestHistoricalEntryTimestamp(userId);
+  // if (lastFetchTimestamp && (new Date().getTime() - new Date(lastFetchTimestamp).getTime()) < SOME_THRESHOLD_MS) {
+  //   const dataFromDb = db.getHistoricalEntries(userId);
+  //   return { success: true, message: "Historical data fetched from local cache.", data: dataFromDb };
+  // }
+
   console.log("Attempting to fetch historical data using Python/Helium script...");
   const pythonScriptPath = path.join(process.cwd(), 'src', 'scripts', 'scrape_timesheets.py');
-  let rawData;
-  let processedData: TimeEntry[] = [];
-
+  
   try {
-    const pythonProcess = spawnSync('python', [pythonScriptPath], { encoding : 'utf8' });
+    const pythonProcess = spawnSync('python', [pythonScriptPath], { encoding : 'utf8', timeout: 300000 }); // 5 min timeout
 
     if (pythonProcess.error) {
       console.error('Failed to start Python script:', pythonProcess.error);
-      return handleScriptErrorFallback("Python script failed to start.");
+      // Return existing DB data as fallback or empty if none
+      const existingData = db.getHistoricalEntries(userId);
+      return { success: false, message: `Python script failed to start. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
     }
 
     const stderrOutput = pythonProcess.stderr?.toString().trim();
-    if (stderrOutput) { // Log stderr even if script succeeds, for diagnostics
+    if (stderrOutput) { 
       console.log('Python script stderr:', stderrOutput);
     }
-
 
     if (pythonProcess.status !== 0) {
       const errorMsg = stderrOutput || "Unknown Python script execution error.";
       console.error(`Python script exited with error code ${pythonProcess.status}:`);
       console.error('Stderr:', errorMsg);
-      return handleScriptErrorFallback(`Python script execution error: ${errorMsg}`);
+      const existingData = db.getHistoricalEntries(userId);
+      return { success: false, message: `Python script execution error. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
     }
 
-    rawData = pythonProcess.stdout?.toString().trim();
+    const rawData = pythonProcess.stdout?.toString().trim();
     if (!rawData) {
         console.warn('Python script executed successfully but produced no output (stdout is empty).');
-        // Treat as success but with no data, or could be a fallback depending on requirements
-        return { success: true, message: "Historical data script ran successfully but returned no data.", data: [] };
+        const existingData = db.getHistoricalEntries(userId);
+        return { success: true, message: `Historical data script ran but returned no new data. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
     }
 
+    let scrapedEntries: Omit<TimeEntry, 'id'>[];
     try {
-        const scrapedEntries: Omit<TimeEntry, 'id'>[] = JSON.parse(rawData);
-        processedData = scrapedEntries.map(entry => ({
-            ...entry,
-            id: generateHistoricalEntryId(),
-            Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0] 
-        }));
+        scrapedEntries = JSON.parse(rawData);
     } catch (jsonError) {
         console.error("Error parsing JSON from Python script output:", jsonError);
         console.error("Raw output from Python script:", rawData);
-        return handleScriptErrorFallback("Failed to parse data from Python script.");
+        const existingData = db.getHistoricalEntries(userId);
+        return { success: false, message: `Failed to parse data from Python script. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
     }
     
-    if (processedData.length === 0) {
-        console.log("Python script ran successfully but returned no time entries.");
+    const processedScrapedData: TimeEntry[] = scrapedEntries.map((entry, index) => ({
+        ...entry,
+        id: `scraped_${Date.now()}_${index}`, // Generate a temporary client_id for these new entries
+        Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0] 
+    }));
+
+    db.addHistoricalEntries(userId, processedScrapedData); // Add new entries to DB
+    
+    const allHistoricalData = db.getHistoricalEntries(userId, 3); // Fetch all, including newly added, limited to 3 months for display
+
+    if (allHistoricalData.length === 0) {
         return { success: true, message: "Successfully fetched data, but no time entries were found.", data: [] };
     }
-
-    const currentDate = new Date();
-    const threeMonthsAgo = subMonths(currentDate, 3);
-    const threeMonthFilteredData = processedData.filter(entry => {
-        try {
-            const entryDate = parseISO(entry.Date);
-            return isValid(entryDate) && entryDate >= threeMonthsAgo && entryDate <= currentDate;
-        } catch (e) {
-            console.warn(`Could not parse date for entry: ${entry.Date}. Excluding from 3-month filter.`, e);
-            return false;
-        }
-    });
-
-    if (threeMonthFilteredData.length === 0 && processedData.length > 0) {
-        console.log(`Successfully fetched ${processedData.length} total entries, but none are within the last 3 months.`);
-        return { success: true, message: `Fetched ${processedData.length} total entries, but no entries found from the last 3 months.`, data: threeMonthFilteredData };
-    }
     
-    console.log(`Successfully fetched ${threeMonthFilteredData.length} entries from the last 3 months via Python script.`);
-    return { success: true, message: "Historical data fetched successfully.", data: threeMonthFilteredData };
+    console.log(`Successfully processed ${processedScrapedData.length} new entries. Total relevant historical entries for user ${userId}: ${allHistoricalData.length}.`);
+    return { success: true, message: "Historical data fetched and updated successfully.", data: allHistoricalData };
 
   } catch (error) {
     console.error("Unhandled error during Python script execution or processing:", error);
-    return handleScriptErrorFallback(`An unexpected error occurred: ${(error as Error).message}.`);
+    const existingData = db.getHistoricalEntries(userId);
+    return { success: false, message: `An unexpected error occurred: ${(error as Error).message}. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
   }
 }
 
-function handleScriptErrorFallback(errorMessage: string): { success: false; message: string, data: TimeEntry[] } {
-    console.warn(`Fallback triggered: ${errorMessage}`);
-    // Do not use mock data. Return empty data and indicate failure.
-    return { success: false, message: `${errorMessage} Could not load historical data.`, data: [] };
+// --- Actions for Shorthand and Main Notes ---
+
+export async function getUserShorthandAction(): Promise<string> {
+  const userId = getAnonymousUserId();
+  return db.getShorthand(userId) || '';
 }
-    
+
+export async function saveUserShorthandAction(text: string): Promise<{ success: boolean; message: string }> {
+  const userId = getAnonymousUserId();
+  try {
+    db.saveShorthand(userId, text);
+    revalidatePath('/'); // Revalidate to reflect changes if displayed elsewhere
+    return { success: true, message: "Shorthand saved." };
+  } catch (error) {
+    console.error("Error saving shorthand:", error);
+    return { success: false, message: "Failed to save shorthand." };
+  }
+}
+
+export async function getUserMainNotesAction(): Promise<string> {
+  const userId = getAnonymousUserId();
+  return db.getMainNotes(userId) || '';
+}
+
+export async function saveUserMainNotesAction(text: string): Promise<{ success: boolean; message: string }> {
+  const userId = getAnonymousUserId();
+  try {
+    db.saveMainNotes(userId, text);
+    // No revalidatePath needed if main notes are only used in the form's state
+    return { success: true, message: "Notes saved." };
+  } catch (error) {
+    console.error("Error saving main notes:", error);
+    return { success: false, message: "Failed to save notes." };
+  }
+}
+
+// --- Actions for Proposed Entries (if needed beyond getProposedEntriesAction) ---
+
+export async function getUserProposedEntriesAction(): Promise<TimeEntry[]> {
+  const userId = getAnonymousUserId();
+  return db.getProposedEntries(userId);
+}
+
+export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promise<{ success: boolean; message: string }> {
+  const userId = getAnonymousUserId();
+  try {
+    db.saveProposedEntries(userId, entries);
+    revalidatePath('/');
+    return { success: true, message: "Proposed entries updated." };
+  } catch (error) {
+    console.error("Error saving proposed entries:", error);
+    return { success: false, message: "Failed to update proposed entries." };
+  }
+}

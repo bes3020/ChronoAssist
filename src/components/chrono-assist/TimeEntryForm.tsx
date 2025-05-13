@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useTransition, useEffect } from 'react';
+import { useState, useTransition, useEffect, useCallback } from 'react';
 import type { TimeEntry } from '@/types/time-entry';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -9,8 +9,18 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { PreviewEntriesModal } from './PreviewEntriesModal';
 import { HistoricalDataModal } from './HistoricalDataModal';
-import { ShorthandModal } from './ShorthandModal'; // New import
-import { getProposedEntriesAction, submitTimeEntriesAction, getHistoricalDataAction } from '@/lib/actions';
+import { ShorthandModal } from './ShorthandModal';
+import { 
+  getProposedEntriesAction, 
+  submitTimeEntriesAction, 
+  getHistoricalDataAction,
+  getUserShorthandAction,
+  saveUserShorthandAction,
+  getUserMainNotesAction,
+  saveUserMainNotesAction,
+  getUserProposedEntriesAction,
+  saveUserProposedEntriesAction
+} from '@/lib/actions';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Lightbulb, ListChecks, History, Send, ChevronDown, Eye, RefreshCw, NotebookPen } from 'lucide-react';
 import {
@@ -19,26 +29,76 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useDebouncedCallback } from 'use-debounce';
 
 export function TimeEntryForm() {
   const [notes, setNotes] = useState('');
-  const [shorthandNotes, setShorthandNotes] = useState(''); // New state for shorthand
+  const [shorthandNotes, setShorthandNotes] = useState('');
   const [proposedEntries, setProposedEntries] = useState<TimeEntry[]>([]);
   const [localHistoricalData, setLocalHistoricalData] = useState<TimeEntry[]>([]);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [isHistoricalModalOpen, setIsHistoricalModalOpen] = useState(false);
-  const [isShorthandModalOpen, setIsShorthandModalOpen] = useState(false); // New state for shorthand modal
+  const [isShorthandModalOpen, setIsShorthandModalOpen] = useState(false);
   
   const [isPendingPreview, startTransitionPreview] = useTransition();
   const [isPendingSubmit, startTransitionSubmit] = useTransition();
   const [isPendingHistorical, startTransitionHistorical] = useTransition();
+  const [isPendingInitialLoad, startTransitionInitialLoad] = useTransition();
 
   const { toast } = useToast();
 
-  const isLoading = isPendingPreview || isPendingSubmit || isPendingHistorical;
+  const isLoading = isPendingPreview || isPendingSubmit || isPendingHistorical || isPendingInitialLoad;
 
+  const debouncedSaveNotes = useDebouncedCallback(async (newNotes: string) => {
+    await saveUserMainNotesAction(newNotes);
+    // Optional: toast notification for saved notes, though might be too noisy
+  }, 1000); // Save after 1 second of inactivity
+
+  const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newNotes = e.target.value;
+    setNotes(newNotes);
+    debouncedSaveNotes(newNotes);
+  };
+  
+  // Load initial data (main notes, shorthand, historical, proposed)
   useEffect(() => {
-    handleGetHistoricalData();
+    startTransitionInitialLoad(async () => {
+      try {
+        const [loadedNotes, loadedShorthand, historicalResult, loadedProposed] = await Promise.all([
+          getUserMainNotesAction(),
+          getUserShorthandAction(),
+          getHistoricalDataAction(), // Fetch historical data on initial load
+          getUserProposedEntriesAction()
+        ]);
+        setNotes(loadedNotes);
+        setShorthandNotes(loadedShorthand);
+        
+        if (historicalResult.success) {
+          setLocalHistoricalData(historicalResult.data);
+          if (historicalResult.data.length === 0 && !historicalResult.message.includes("Python script")) {
+             toast({
+              title: "Historical Data",
+              description: "No historical data found. You can try fetching it or proceed without it.",
+              variant: "default"
+            });
+          }
+        } else {
+          toast({
+            title: "Failed to Load Historical Data",
+            description: historicalResult.message,
+            variant: "destructive",
+          });
+        }
+        setProposedEntries(loadedProposed);
+
+      } catch (error) {
+        toast({
+          title: "Error Loading Initial Data",
+          description: (error as Error).message || "Could not load your saved data.",
+          variant: "destructive",
+        });
+      }
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -62,15 +122,14 @@ export function TimeEntryForm() {
     }
     startTransitionPreview(async () => {
       try {
-        // Pass shorthandNotes and localHistoricalData to the action
-        const entries = await getProposedEntriesAction(notes, localHistoricalData, shorthandNotes);
+        const entries = await getProposedEntriesAction(notes, shorthandNotes); // Removed localHistoricalData
         if (entries.length === 0 && notes.trim() !== "") {
            toast({
             title: "No Suggestions",
             description: "AI could not generate suggestions. Try adding more details or check historical data.",
           });
         }
-        setProposedEntries(entries);
+        setProposedEntries(entries); // These are now from DB, but immediately reflect AI output
         setIsPreviewModalOpen(true);
       } catch (error) {
         toast({
@@ -100,10 +159,8 @@ export function TimeEntryForm() {
           variant: result.success ? "default" : "destructive",
         });
         if (result.success) {
-          // Optionally clear notes or reset form
-          // setNotes('');
-          // setProposedEntries([]);
-          // Refresh historical data as new entries might have been added
+          setProposedEntries([]); // Clear proposed entries from state
+          // Refresh historical data as new entries have been added to DB and external system
           handleGetHistoricalData(); 
         }
       } catch (error) {
@@ -116,7 +173,7 @@ export function TimeEntryForm() {
     });
   };
 
-  const handleGetHistoricalData = () => {
+  const handleGetHistoricalData = useCallback(() => {
     startTransitionHistorical(async () => {
       try {
         const result = await getHistoricalDataAction();
@@ -125,25 +182,26 @@ export function TimeEntryForm() {
           if (result.data.length > 0) {
             toast({
               title: "Historical Data Updated",
-              description: `Successfully fetched ${result.data.length} historical entries.`,
+              description: `Successfully fetched/updated ${result.data.length} historical entries.`,
             });
           } else {
              toast({
               title: "Historical Data Empty",
               description: result.message || "No historical time entries were found.",
-              variant: "default" // Use default variant as it's not an error, just empty
+              variant: "default"
             });
           }
         } else {
-          setLocalHistoricalData([]); // Ensure data is cleared on failure
+          // Data from DB might be returned on script failure, so update state regardless
+          setLocalHistoricalData(result.data || []); 
           toast({
-            title: "Failed to Load Data",
-            description: result.message || "Could not retrieve historical data.",
+            title: "Failed to Refresh Data",
+            description: result.message || "Could not retrieve fresh historical data.",
             variant: "destructive",
           });
         }
       } catch (error) {
-        setLocalHistoricalData([]); // Ensure data is cleared on error
+        setLocalHistoricalData([]); 
         toast({
           title: "Error Fetching Data",
           description: (error as Error).message || "An unexpected error occurred while fetching historical data.",
@@ -151,21 +209,43 @@ export function TimeEntryForm() {
         });
       }
     });
-  };
+  }, [startTransitionHistorical, toast]); // Added dependencies
 
   const handleSaveModalEntries = (updatedEntries: TimeEntry[]) => {
-    setProposedEntries(updatedEntries);
-    toast({
-      title: "Entries Updated",
-      description: "Your changes to the time entries have been saved locally.",
+    startTransitionPreview(async () => { // Reuse preview transition or add a new one
+        try {
+            await saveUserProposedEntriesAction(updatedEntries);
+            setProposedEntries(updatedEntries);
+            toast({
+                title: "Entries Updated",
+                description: "Your changes to the time entries have been saved.",
+            });
+        } catch (error) {
+            toast({
+                title: "Error Saving Entries",
+                description: (error as Error).message || "Failed to save proposed entries.",
+                variant: "destructive",
+            });
+        }
     });
   };
 
   const handleSaveShorthand = (newShorthand: string) => {
-    setShorthandNotes(newShorthand);
-    toast({
-      title: "Shorthand Updated",
-      description: "Your shorthand notes have been saved.",
+    startTransitionPreview(async () => { // Reuse preview transition or add new
+        try {
+            await saveUserShorthandAction(newShorthand);
+            setShorthandNotes(newShorthand);
+            toast({
+                title: "Shorthand Updated",
+                description: "Your shorthand notes have been saved.",
+            });
+        } catch (error) {
+            toast({
+                title: "Error Saving Shorthand",
+                description: (error as Error).message || "Failed to save shorthand.",
+                variant: "destructive",
+            });
+        }
     });
   };
   
@@ -179,7 +259,7 @@ export function TimeEntryForm() {
           AI Time Entry Assistant
         </CardTitle>
         <CardDescription className="text-md">
-          Enter your work notes below. The AI will help suggest time entries based on historical data. Use the 'My Shorthand' button to define common abbreviations.
+          Enter your work notes below. The AI will help suggest time entries based on historical data. Use the 'My Shorthand' button to define common abbreviations. Your notes are saved automatically.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -187,7 +267,7 @@ export function TimeEntryForm() {
           <Textarea
             placeholder="Describe your work, e.g., 'Worked on Project Alpha login feature, attended Beta sprint planning meeting...'"
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={handleNotesChange}
             rows={6}
             className="text-base p-4 rounded-md shadow-inner focus:ring-accent focus:border-accent"
             disabled={isLoading}
@@ -263,7 +343,7 @@ export function TimeEntryForm() {
         onClose={() => setIsPreviewModalOpen(false)}
         entries={proposedEntries}
         onSave={handleSaveModalEntries}
-        historicalData={localHistoricalData}
+        historicalData={localHistoricalData} // For dropdowns in modal
       />
       <HistoricalDataModal
         isOpen={isHistoricalModalOpen}
@@ -279,4 +359,3 @@ export function TimeEntryForm() {
     </Card>
   );
 }
-

@@ -1,5 +1,5 @@
 export interface TimeEntry {
-  id: string; // Client-side unique ID
+  id: string; // Can be client-generated (e.g., `proposed_xxx`) or DB-generated (e.g., `db_hist_xxx` or actual client_id from DB)
   Date: string;
   Project: string;
   Activity: string;

@@ -13,32 +13,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+// Input, ScrollArea, Table components are used by EditableEntryRow
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Table,
   TableBody,
-  TableCell,
+  // TableCell, // Used in EditableEntryRow
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Trash2 } from 'lucide-react';
+// Select components are used by EditableEntryRow
 import { EditableEntryRow } from './EditableEntryRow';
 
 interface PreviewEntriesModalProps {
   isOpen: boolean;
   onClose: () => void;
-  entries: TimeEntry[];
-  onSave: (updatedEntries: TimeEntry[]) => void;
-  historicalData: TimeEntry[];
+  entries: TimeEntry[]; // These are proposed entries, potentially from DB or fresh from AI
+  onSave: (updatedEntries: TimeEntry[]) => void; // This will call a server action
+  historicalData: TimeEntry[]; // For populating dropdowns
 }
 
 // Helper function to get unique string values for a field from historical data
@@ -52,9 +45,9 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historic
   const [editableEntries, setEditableEntries] = useState<TimeEntry[]>([]);
 
   useEffect(() => {
-    // Deep copy to avoid mutating original entries
+    // Deep copy to avoid mutating original entries from props
     setEditableEntries(entries.map(entry => ({ ...entry })));
-  }, [entries, isOpen]);
+  }, [entries, isOpen]); // Re-initialize if props.entries changes or modal re-opens
   
   const uniqueProjects = useMemo(() => getUniqueFieldValues(historicalData, 'Project'), [historicalData]);
 
@@ -67,32 +60,29 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historic
 
         if (field === 'Project') {
           const newProject = String(value);
-          // Check if current Activity is valid for the new Project
           const activitiesForNewProject = Array.from(new Set(historicalData
             .filter(item => item.Project === newProject)
             .map(item => item.Activity)));
           
-          if (!activitiesForNewProject.includes(updatedEntry.Activity)) {
-            updatedEntry.Activity = ''; // Reset Activity
+          if (!activitiesForNewProject.includes(updatedEntry.Activity || '')) { // Handle undefined activity
+            updatedEntry.Activity = ''; 
           }
           
-          // Consequentially, WorkItem might also need reset if Activity was reset or if current WorkItem is not valid
           const workItemsForNewProjectAndActivity = Array.from(new Set(historicalData
             .filter(item => item.Project === newProject && item.Activity === updatedEntry.Activity)
             .map(item => item.WorkItem)));
 
-          if (!workItemsForNewProjectAndActivity.includes(updatedEntry.WorkItem)) {
-            updatedEntry.WorkItem = ''; // Reset WorkItem
+          if (!workItemsForNewProjectAndActivity.includes(updatedEntry.WorkItem || '')) { // Handle undefined workitem
+            updatedEntry.WorkItem = ''; 
           }
         } else if (field === 'Activity') {
           const newActivity = String(value);
-          // Check if current WorkItem is valid for current Project and new Activity
            const workItemsForCurrentProjectAndNewActivity = Array.from(new Set(historicalData
             .filter(item => item.Project === updatedEntry.Project && item.Activity === newActivity)
             .map(item => item.WorkItem)));
           
-          if (!workItemsForCurrentProjectAndNewActivity.includes(updatedEntry.WorkItem)) {
-            updatedEntry.WorkItem = ''; // Reset WorkItem
+          if (!workItemsForCurrentProjectAndNewActivity.includes(updatedEntry.WorkItem || '')) { // Handle undefined workitem
+            updatedEntry.WorkItem = ''; 
           }
         }
         return updatedEntry;
@@ -105,7 +95,7 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historic
     setEditableEntries(prev => [
       ...prev,
       {
-        id: newEntryId,
+        id: newEntryId, // This is a client-side ID for UI purposes
         Date: new Date().toISOString().split('T')[0],
         Project: '',
         Activity: '',
@@ -121,7 +111,7 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historic
   };
 
   const handleSaveChanges = () => {
-    onSave(editableEntries);
+    onSave(editableEntries); // Propagate changes up, which will trigger DB save
     onClose();
   };
 
@@ -152,7 +142,7 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historic
             <TableBody>
               {editableEntries.map((entry) => (
                 <EditableEntryRow
-                  key={entry.id}
+                  key={entry.id} // Client-side ID
                   entry={entry}
                   historicalData={historicalData}
                   uniqueProjects={uniqueProjects}
