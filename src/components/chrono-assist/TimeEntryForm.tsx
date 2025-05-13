@@ -276,7 +276,7 @@ export function TimeEntryForm() {
             placeholder="Describe your work, e.g., 'Worked on Project Alpha login feature, attended Beta sprint planning meeting...'"
             value={notes}
             onChange={handleNotesChange}
-            rows={6}
+            rows={15}
             className="text-base p-4 rounded-md shadow-inner focus:ring-accent focus:border-accent"
             disabled={isLoading}
           />
