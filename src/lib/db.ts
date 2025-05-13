@@ -37,19 +37,18 @@ export function initializeDb() {
     CREATE TABLE IF NOT EXISTS user_historical_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT NOT NULL,
-      client_id TEXT, -- Store client-generated ID if needed for reconciliation, can be null
+      client_id TEXT, 
       date TEXT NOT NULL,
       project TEXT NOT NULL,
       activity TEXT NOT NULL,
       work_item TEXT NOT NULL,
       hours REAL NOT NULL,
       comment TEXT,
-      entry_hash TEXT NOT NULL UNIQUE, -- To prevent exact duplicates for the same user
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES user_shorthand(user_id) ON DELETE CASCADE 
-        DEFERRABLE INITIALLY DEFERRED, 
-      FOREIGN KEY (user_id) REFERENCES user_main_notes(user_id) ON DELETE CASCADE
-        DEFERRABLE INITIALLY DEFERRED
+      entry_hash TEXT NOT NULL UNIQUE, 
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      -- Foreign key constraints removed as per user request to avoid dependency
+      -- FOREIGN KEY (user_id) REFERENCES user_shorthand(user_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+      -- FOREIGN KEY (user_id) REFERENCES user_main_notes(user_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
     );
     CREATE INDEX IF NOT EXISTS idx_historical_user_id_date ON user_historical_entries(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_historical_entry_hash ON user_historical_entries(entry_hash);
@@ -58,7 +57,7 @@ export function initializeDb() {
     CREATE TABLE IF NOT EXISTS user_proposed_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT NOT NULL,
-      client_id TEXT NOT NULL UNIQUE, -- Client-side generated ID
+      client_id TEXT NOT NULL UNIQUE, 
       date TEXT NOT NULL,
       project TEXT NOT NULL,
       activity TEXT NOT NULL,
@@ -167,7 +166,7 @@ export function addHistoricalEntries(userId: string, entries: TimeEntry[]): void
       const hash = generateEntryHash(entry);
       insertStmt.run(
         userId,
-        entry.id, // Store client-generated ID if available
+        entry.id, 
         entry.Date,
         entry.Project,
         entry.Activity,
@@ -187,7 +186,7 @@ export function getProposedEntries(userId: string): TimeEntry[] {
     FROM user_proposed_entries 
     WHERE user_id = ? 
     ORDER BY id ASC
-  `); // Use client_id as id
+  `); 
   return stmt.all(userId) as TimeEntry[];
 }
 
@@ -203,7 +202,7 @@ export function saveProposedEntries(userId: string, entries: TimeEntry[]): void 
     for (const entry of entries) {
       insertStmt.run(
         userId,
-        entry.id, // client_id
+        entry.id, 
         entry.Date,
         entry.Project,
         entry.Activity,
@@ -226,4 +225,3 @@ export function getLatestHistoricalEntryTimestamp(userId: string): string | null
   const result = stmt.get(userId) as { latest_timestamp: string } | undefined;
   return result?.latest_timestamp ?? null;
 }
-
