@@ -35,9 +35,9 @@ export function initializeDb() {
     );
 
     CREATE TABLE IF NOT EXISTS user_historical_entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, -- SQLite's internal autoincrementing ID
       user_id TEXT NOT NULL,
-      client_id TEXT, 
+      client_id TEXT, -- This is the ID used by the application (e.g., from proposed entries, or scraped data)
       date TEXT NOT NULL,
       project TEXT NOT NULL,
       activity TEXT NOT NULL,
@@ -47,17 +47,15 @@ export function initializeDb() {
       entry_hash TEXT NOT NULL UNIQUE, 
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       -- Foreign key constraints removed as per user request to avoid dependency
-      -- FOREIGN KEY (user_id) REFERENCES user_shorthand(user_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-      -- FOREIGN KEY (user_id) REFERENCES user_main_notes(user_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
     );
     CREATE INDEX IF NOT EXISTS idx_historical_user_id_date ON user_historical_entries(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_historical_entry_hash ON user_historical_entries(entry_hash);
 
 
     CREATE TABLE IF NOT EXISTS user_proposed_entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, -- SQLite's internal autoincrementing ID
       user_id TEXT NOT NULL,
-      client_id TEXT NOT NULL UNIQUE, 
+      client_id TEXT NOT NULL UNIQUE, -- This is the ID used by the application (e.g., "proposed_...")
       date TEXT NOT NULL,
       project TEXT NOT NULL,
       activity TEXT NOT NULL,
@@ -122,8 +120,6 @@ export function saveMainNotes(userId: string, text: string): void {
 
 // Function to ensure user_id exists in parent tables (user_shorthand, user_main_notes)
 export function ensureUserRecordsExist(userId: string): void {
-  // Calling saveShorthand and saveMainNotes with current or empty values
-  // ensures the records exist due to their UPSERT (INSERT ON CONFLICT DO UPDATE) logic.
   const currentShorthand = getShorthand(userId);
   saveShorthand(userId, currentShorthand || '');
 
@@ -134,7 +130,8 @@ export function ensureUserRecordsExist(userId: string): void {
 
 // Historical Entries
 export function getHistoricalEntries(userId: string, limitLastMonths: number | null = 3): TimeEntry[] {
-  let query = 'SELECT client_id as id, date, project, activity, work_item, hours, comment FROM user_historical_entries WHERE user_id = ?';
+  // Select SQLite's 'id' as 'sqlite_pk_id' for fallback. 'client_id' is the main app-level ID.
+  let query = 'SELECT id as sqlite_pk_id, client_id, date, project, activity, work_item, hours, comment FROM user_historical_entries WHERE user_id = ?';
   const params: any[] = [userId];
 
   if (limitLastMonths !== null && limitLastMonths > 0) {
@@ -144,14 +141,24 @@ export function getHistoricalEntries(userId: string, limitLastMonths: number | n
     params.push(sinceDate.toISOString().split('T')[0]);
   }
   
-  query += ' ORDER BY date DESC, id DESC';
+  query += ' ORDER BY date DESC, sqlite_pk_id DESC';
 
   const stmt = db.prepare(query);
   const results = stmt.all(...params) as any[];
-  return results.map(row => ({
-    ...row,
-    id: row.id || `db_hist_${row.id_fallback || Math.random()}` // Use client_id as id, fallback if needed
-  }));
+  
+  return results.map(dbRow => {
+    const row = dbRow as any; // To access properties with original DB casing
+    return {
+      // Use client_id if available, otherwise construct one from SQLite's primary key
+      id: row.client_id || `db_hist_sqpk_${row.sqlite_pk_id}`, 
+      Date: row.date,
+      Project: row.project,
+      Activity: row.activity,
+      WorkItem: row.work_item, // Map 'work_item' from DB to 'WorkItem'
+      Hours: row.hours,
+      Comment: row.comment,
+    };
+  });
 }
 
 export function addHistoricalEntries(userId: string, entries: TimeEntry[]): void {
@@ -163,10 +170,10 @@ export function addHistoricalEntries(userId: string, entries: TimeEntry[]): void
 
   db.transaction(() => {
     for (const entry of entries) {
-      const hash = generateEntryHash(entry);
+      const hash = generateEntryHash(entry); // generateEntryHash expects PascalCase properties
       insertStmt.run(
         userId,
-        entry.id, 
+        entry.id, // This entry.id is the application-level ID (e.g., "scraped_...", "proposed_...")
         entry.Date,
         entry.Project,
         entry.Activity,
@@ -181,14 +188,28 @@ export function addHistoricalEntries(userId: string, entries: TimeEntry[]): void
 
 // Proposed Entries
 export function getProposedEntries(userId: string): TimeEntry[] {
+  // client_id is NOT NULL and UNIQUE in user_proposed_entries, so it's reliable as 'id'
   const stmt = db.prepare(`
-    SELECT client_id as id, date, project, activity, work_item, hours, comment 
+    SELECT client_id, date, project, activity, work_item, hours, comment 
     FROM user_proposed_entries 
     WHERE user_id = ? 
-    ORDER BY id ASC
+    ORDER BY id ASC -- 'id' here refers to the SQLite autoincrement PK of user_proposed_entries
   `); 
-  return stmt.all(userId) as TimeEntry[];
+  const results = stmt.all(userId) as any[];
+  return results.map(dbRow => {
+    const row = dbRow as any; // To access properties with original DB casing
+    return {
+      id: row.client_id, // This is the application-level ID (e.g., "proposed_...")
+      Date: row.date,
+      Project: row.project,
+      Activity: row.activity,
+      WorkItem: row.work_item, // Map 'work_item' from DB to 'WorkItem'
+      Hours: row.hours,
+      Comment: row.comment,
+    };
+  });
 }
+
 
 export function saveProposedEntries(userId: string, entries: TimeEntry[]): void {
   const deleteStmt = db.prepare('DELETE FROM user_proposed_entries WHERE user_id = ?');
@@ -202,7 +223,7 @@ export function saveProposedEntries(userId: string, entries: TimeEntry[]): void 
     for (const entry of entries) {
       insertStmt.run(
         userId,
-        entry.id, 
+        entry.id, // This entry.id is the application-level ID (e.g., "proposed_...")
         entry.Date,
         entry.Project,
         entry.Activity,
@@ -225,3 +246,4 @@ export function getLatestHistoricalEntryTimestamp(userId: string): string | null
   const result = stmt.get(userId) as { latest_timestamp: string } | undefined;
   return result?.latest_timestamp ?? null;
 }
+
