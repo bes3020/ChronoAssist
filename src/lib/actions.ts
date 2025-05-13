@@ -1,9 +1,10 @@
+
 'use server';
 import type { InitialTimeEntryInput, InitialTimeEntryOutput } from '@/ai/flows/initial-time-entry-prompt';
 import { initialTimeEntry } from '@/ai/flows/initial-time-entry-prompt';
 import { revalidatePath } from 'next/cache';
 import type { TimeEntry } from '@/types/time-entry';
-import { subMonths, parseISO, isValid, format } from 'date-fns';
+import { parseISO, format } from 'date-fns';
 import { spawnSync } from 'child_process';
 import path from 'path';
 import { getAnonymousUserId } from '@/lib/auth';
@@ -36,7 +37,7 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
       Activity: entry.Activity,
       WorkItem: entry.WorkItem,
       Comment: entry.Comment,
-      // Hours field is intentionally omitted here
+      // Hours field is intentionally omitted here for AI context
     }));
 
     const aiInput: InitialTimeEntryInput = {
@@ -47,25 +48,22 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
     const aiOutput: InitialTimeEntryOutput = await initialTimeEntry(aiInput);
     console.log("Raw AI Output:", JSON.stringify(aiOutput, null, 2));
 
-
-    const filteredEntries: TimeEntry[] = aiOutput.map(entry => ({
+    // AI is expected to return entries with Project, Activity, and WorkItem. No more client-side filtering here.
+    const processedEntries: TimeEntry[] = aiOutput.map(entry => ({
       ...entry,
       id: generateProposedEntryId(), 
       Hours: Number(entry.Hours) || 0, 
-    })).filter(entry => entry.Project && entry.Activity && entry.WorkItem); 
+    }));
     
-    console.log("Filtered Proposed Entries:", JSON.stringify(filteredEntries, null, 2));
+    console.log("Processed AI Entries (no client-side filtering on P/A/WI):", JSON.stringify(processedEntries, null, 2));
     
-    db.saveProposedEntries(userId, filteredEntries); // Save to DB
-    return { rawAiOutputCount: aiOutput.length, filteredEntries };
+    db.saveProposedEntries(userId, processedEntries); // Save to DB
+    return { rawAiOutputCount: aiOutput.length, filteredEntries: processedEntries };
 
   } catch (error) {
     console.error("Error getting proposed entries from AI:", error);
-    // Don't clear proposed entries here, as there might be valid old ones
-    // Instead, return the current state or an empty array with a zero count
     const existingProposed = db.getProposedEntries(userId);
     return { rawAiOutputCount: 0, filteredEntries: existingProposed };
-    // throw new Error("Failed to generate time entry suggestions. Please try again.");
   }
 }
 
@@ -187,6 +185,7 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
 
     // The Python script for scraping might not return 'Hours'.
     // The TimeEntry type expects 'Hours', so we'll provide a default if it's missing.
+    // Historical data for AI context does not need Hours.
     type ScrapedEntryMaybeNoHours = Omit<TimeEntry, 'id' | 'Hours'> & { Hours?: number };
     let scrapedEntries: ScrapedEntryMaybeNoHours[];
     try {
@@ -202,7 +201,7 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
         ...entry,
         id: `scraped_${Date.now()}_${index}`, 
         Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0],
-        Hours: typeof entry.Hours === 'number' ? entry.Hours : 0, // Default to 0 if hours are not provided/parsed
+        Hours: 0, // Hours are not stored for historical data used by AI.
     }));
 
     db.addHistoricalEntries(userId, processedScrapedData); 
