@@ -40,7 +40,7 @@ export function GenerateOrAddModal({ isOpen, onClose, onGenerateNew, onAddToExis
               onGenerateNew();
               onClose();
             }}
-            className="w-full justify-start text-left py-6 bg-background border border-primary hover:bg-primary/10"
+            className="w-full justify-start text-left py-4 bg-background border border-primary hover:bg-primary/10"
           >
             <div className="flex items-center">
               <Brain className="mr-3 h-5 w-5 text-primary" />
@@ -55,7 +55,7 @@ export function GenerateOrAddModal({ isOpen, onClose, onGenerateNew, onAddToExis
               onAddToExisting();
               onClose();
             }}
-            className="w-full justify-start text-left py-6 bg-background border border-accent hover:bg-accent/10"
+            className="w-full justify-start text-left py-4 bg-background border border-accent hover:bg-accent/10"
           >
             <div className="flex items-center">
              <PlusCircle className="mr-3 h-5 w-5 text-accent" />
@@ -75,3 +75,4 @@ export function GenerateOrAddModal({ isOpen, onClose, onGenerateNew, onAddToExis
     </Dialog>
   );
 }
+
