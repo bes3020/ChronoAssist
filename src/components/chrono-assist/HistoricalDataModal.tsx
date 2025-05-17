@@ -20,15 +20,27 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PlusCircle } from 'lucide-react'; // Icon for the new button
 
 interface HistoricalDataModalProps {
   isOpen: boolean;
   onClose: () => void;
   historicalData: TimeEntry[];
+  onAddToShorthand: (shorthandLine: string) => void; // New prop
 }
 
-export function HistoricalDataModal({ isOpen, onClose, historicalData }: HistoricalDataModalProps) {
+export function HistoricalDataModal({ isOpen, onClose, historicalData, onAddToShorthand }: HistoricalDataModalProps) {
   if (!isOpen) return null;
+
+  const handleAddClick = (entry: TimeEntry) => {
+    // Construct the shorthand line. Users can edit the "value" part later.
+    // Ensure project, activity, and workitem are not undefined or null
+    const project = entry.Project || 'N/A';
+    const activity = entry.Activity || 'N/A';
+    const workItem = entry.WorkItem || 'N/A';
+    const shorthandLine = `${project} - ${activity} - ${workItem} = `;
+    onAddToShorthand(shorthandLine);
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -37,6 +49,7 @@ export function HistoricalDataModal({ isOpen, onClose, historicalData }: Histori
           <DialogTitle className="text-2xl font-semibold">Historical Time Entries</DialogTitle>
           <DialogDescription>
             View your past time entries. This data is used by the AI to provide suggestions.
+            You can add an entry's Project-Activity-WorkItem combination to your shorthand.
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh] pr-4">
@@ -49,6 +62,7 @@ export function HistoricalDataModal({ isOpen, onClose, historicalData }: Histori
                   <TableHead>Activity</TableHead>
                   <TableHead>Work Item</TableHead>
                   <TableHead>Comment</TableHead>
+                  <TableHead className="w-[150px] text-center">Add to Shorthand</TableHead> 
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -59,6 +73,18 @@ export function HistoricalDataModal({ isOpen, onClose, historicalData }: Histori
                     <TableCell>{entry.Activity}</TableCell>
                     <TableCell>{entry.WorkItem}</TableCell>
                     <TableCell>{entry.Comment}</TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleAddClick(entry)}
+                        className="text-xs"
+                        aria-label={`Add ${entry.Project} - ${entry.Activity} - ${entry.WorkItem} to shorthand`}
+                      >
+                        <PlusCircle className="mr-1 h-3 w-3" />
+                        Add
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

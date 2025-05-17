@@ -207,11 +207,10 @@ export function TimeEntryForm() {
 
 
   const handleSubmitTime = () => {
-    if (proposedEntries.length === 0 && notes.trim() === "") {
-       // Check if proposedEntries in state is empty. If so, try to load from DB.
-       startTransitionProcessing(async () => {
+    // Always fetch latest proposed entries from DB before submission
+    startTransitionProcessing(async () => {
         const latestProposedEntriesFromDb = await getUserProposedEntriesAction();
-        if (latestProposedEntriesFromDb.length === 0) {
+        if (!latestProposedEntriesFromDb || latestProposedEntriesFromDb.length === 0) {
             toast({
                 title: "No Entries",
                 description: "There are no entries to submit. Use Timesheet AI or Edit Time first.",
@@ -219,45 +218,36 @@ export function TimeEntryForm() {
             });
             return;
         }
-        setProposedEntries(latestProposedEntriesFromDb); // Update state
-        // Now proceed to submit these entries
+        setProposedEntries(latestProposedEntriesFromDb); // Update state to reflect what's being submitted
         performSubmit(latestProposedEntriesFromDb);
-       });
-    } else if (proposedEntries.length === 0 && notes.trim() !== "") {
-        toast({
-            title: "No Entries Generated",
-            description: "Please use Timesheet AI or Edit Time to create/review entries before submitting.",
-            variant: "destructive",
-        });
-    }
-     else {
-      // Entries exist in state, proceed with them
-      performSubmit(proposedEntries);
-    }
+    });
   };
 
   const performSubmit = (entriesToSubmit: TimeEntry[]) => {
-    startTransitionProcessing(async () => {
-      try {
-        const result = await submitTimeEntriesAction(entriesToSubmit);
-        toast({
-          title: result.success ? "Success" : "Error",
-          description: result.message,
-          variant: result.success ? "default" : "destructive",
-        });
-        if (result.success) {
-          setProposedEntries([]); 
-          await saveUserProposedEntriesAction([]); // Clear from DB as well
-          handleRefreshHistoricalDataFromScript(); 
+    // This transition is already wrapped by handleSubmitTime's transition
+    // startTransitionProcessing(async () => { // Removed redundant transition
+      (async () => {
+        try {
+          const result = await submitTimeEntriesAction(entriesToSubmit);
+          toast({
+            title: result.success ? "Success" : "Error",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+          });
+          if (result.success) {
+            setProposedEntries([]); 
+            await saveUserProposedEntriesAction([]); // Clear from DB as well
+            handleRefreshHistoricalDataFromScript(); 
+          }
+        } catch (error) {
+           toast({
+            title: "Submission Failed",
+            description: (error as Error).message || "An unexpected error occurred.",
+            variant: "destructive",
+          });
         }
-      } catch (error) {
-         toast({
-          title: "Submission Failed",
-          description: (error as Error).message || "An unexpected error occurred.",
-          variant: "destructive",
-        });
-      }
-    });
+      })();
+    // }); // Removed redundant transition
   };
 
   const handleRefreshHistoricalDataFromScript = useCallback(() => {
@@ -320,7 +310,7 @@ export function TimeEntryForm() {
     startTransitionProcessing(async () => { 
         try {
             await saveUserShorthandAction(newShorthand);
-            setShorthandNotes(newShorthand);
+            setShorthandNotes(newShorthand); // Update local state
             toast({
                 title: "Shorthand Updated",
                 description: "Your shorthand notes have been saved.",
@@ -332,6 +322,15 @@ export function TimeEntryForm() {
                 variant: "destructive",
             });
         }
+    });
+  };
+
+  const handleAddToShorthandEntry = (shorthandLine: string) => {
+    const newShorthand = shorthandNotes + (shorthandNotes ? '\n' : '') + shorthandLine;
+    handleSaveShorthand(newShorthand); // This will also update state and call server action
+    toast({
+      title: "Shorthand Updated",
+      description: `Added: "${shorthandLine.trim()}" to your shorthand notes.`,
     });
   };
   
@@ -435,7 +434,7 @@ export function TimeEntryForm() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleSubmitTime}
-                disabled={isLoading || (proposedEntries.length === 0 && !notes.trim())}
+                disabled={isLoading} // Removed proposedEntries.length check, as it's handled inside handleSubmitTime
                 aria-label="Submit current time entries"
               >
                 <Send className="mr-2 h-4 w-4" /> Submit Entries
@@ -462,6 +461,7 @@ export function TimeEntryForm() {
         isOpen={isHistoricalModalOpen}
         onClose={() => setIsHistoricalModalOpen(false)}
         historicalData={localHistoricalData}
+        onAddToShorthand={handleAddToShorthandEntry} 
       />
       <ShorthandModal
         isOpen={isShorthandModalOpen}
@@ -472,3 +472,4 @@ export function TimeEntryForm() {
     </Card>
   );
 }
+
