@@ -5,7 +5,7 @@
 
 from helium import (
     start_chrome, click, Text, wait_until, find_all,
-    go_to, press, kill_browser, Button, TAB
+    go_to, press, kill_browser, Button, TAB, ENTER
 )
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 import json
@@ -97,28 +97,32 @@ def submit_entries(entries_data):
                 log_message(f"Critical: Failed to determine or format date for entry at index {index} (original date string: '{date_string}'). Skipping this entry.")
                 continue # Skip to the next iteration of the for loop
 
-            log_message(f"Processing entry {index + 1}/{len(entries_data)}: Date '{formatted_date}', Project '{entry.get('Project', 'N/A')}'")
+            log_message(f"Processing entry {index + 1}/{len(entries_data)}: Date '{formatted_date}', Project '{entry.get('Project', 'N/A')}', Activity '{entry.get('Activity', 'N/A')}', WorkItem '{entry.get('WorkItem', 'N/A')}', Hours '{entry.get('Hours', 'N/A')}', Comment '{entry.get('Comment', 'N/A')}'")
 
             press(formatted_date)
             press(TAB)
             press(TAB)
             # press('BIO02001: BioLegend D365 F&SC Implementation')
-            press(entries_data.get('Project', ''))
+            press(entry.get('Project', ''))
             press(TAB)
             #press('CR01 Sr Functional Solution Architect')
-            press(entries_data.get('Activity', ''))
+            press(entry.get('Activity', ''))
             press(TAB)
             # press('Work item')
-            press(entries_data.get('WorkItem', ''))
+            time.sleep(3)
+            press(entry.get('WorkItem', ''))
+            time.sleep(1)
+            press(ENTER)
+            time.sleep(3) # Wait for the WorkItem to be selected
             press(TAB)
             press(TAB)
-            #press('.25')
-            entries_data.get('Hours', '')
+            press(entry.get('Hours', ''))
+            press(TAB)
             press(TAB)
             press(TAB)
             press(TAB)
             #press("Test comment")
-            press(entries_data.get('Comment', ''))
+            press(entry.get('Comment', ''))
             time.sleep(6)
         
         log_message("All entries processed by script (using placeholders).")
@@ -154,7 +158,8 @@ if __name__ == "__main__":
             result = {"success": False, "message": f"Python script unexpected error: {e_main}"}
     else:
         log_message("No time entries data provided to the script via command line argument.")
-        result = submit_entries([{"Date": "2025-05-13", "Project": "Project Alpha", "Activity": "Development", "WorkItem": "Feature X", "Hours": .5, "Comment": "API integration and testing"},{"Date": "2025-05-13", "Project": "Project Alpha", "Activity": "Development", "WorkItem": "Feature X", "Hours": .5, "Comment": "API integration and testing"},{"Date": "2025-05-13", "Project": "Project Alpha", "Activity": "Development", "WorkItem": "Feature X", "Hours": .5, "Comment": "API integration and testing"}])
+        result = submit_entries([{"Date": "2025-05-13", "Project": "DIG02003: OneDigital Finance Transformation", "Activity": "Setup and Configuration - Design (3-CapEx)", "WorkItem": "Cus-EA", "Hours": .5, "Comment": "API integration and testing"},
+                                 {"Date": "2025-05-13", "Project": "DIG02003: OneDigital Finance Transformation", "Activity": "Setup and Configuration - Design (3-CapEx)", "WorkItem": "Cus-EA", "Hours": .5, "Comment": "API integration and testing"}])
         #result = {"success": False, "message": "Python script: No data received to submit."}
     
     # Output the result as JSON to stdout for Node.js to capture
