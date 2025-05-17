@@ -44,7 +44,7 @@ export function HistoricalDataModal({ isOpen, onClose, historicalData, onAddToSh
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[90vw] md:max-w-[80vw] lg:max-w-[70vw] xl:max-w-[60vw] rounded-lg shadow-xl">
+      <DialogContent className="sm:max-w-[90vw] md:max-w-[80vw] lg:max-w-[80vw] xl:max-w-[80vw] rounded-lg shadow-xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">Historical Time Entries</DialogTitle>
           <DialogDescription>

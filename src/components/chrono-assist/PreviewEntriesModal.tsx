@@ -121,7 +121,7 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historic
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[95vw] md:max-w-[90vw] lg:max-w-[80vw] xl:max-w-[70vw] rounded-lg shadow-xl">
+      <DialogContent className="sm:max-w-[95vw] md:max-w-[90vw] lg:max-w-[90vw] xl:max-w-[80vw] rounded-lg shadow-xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">Preview Time Entries</DialogTitle>
           <DialogDescription>

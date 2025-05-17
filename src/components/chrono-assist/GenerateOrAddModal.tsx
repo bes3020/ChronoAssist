@@ -45,8 +45,7 @@ export function GenerateOrAddModal({ isOpen, onClose, onGenerateNew, onAddToExis
             <div className="flex items-center">
               <Brain className="mr-3 h-5 w-5 text-primary" />
               <div>
-                <p className="font-semibold text-primary-foreground">Generate New Entries</p>
-                <p className="text-sm text-muted-foreground">Replace any current suggestions with new ones from your notes.</p>
+                <p className="font-semibold text-primary-foreground">Generate New Entries</p>              
               </div>
             </div>
           </Button>
@@ -60,8 +59,7 @@ export function GenerateOrAddModal({ isOpen, onClose, onGenerateNew, onAddToExis
             <div className="flex items-center">
              <PlusCircle className="mr-3 h-5 w-5 text-accent" />
               <div>
-                <p className="font-semibold text-accent">Add to Existing Entries</p>
-                <p className="text-sm text-muted-foreground">Add new AI suggestions to your current list of entries.</p>
+                <p className="font-semibold text-accent">Add to Existing Entries</p>                
               </div>
             </div>
           </Button>
