@@ -128,7 +128,7 @@ export function PreviewEntriesModal({ isOpen, onClose, entries, onSave, historic
             Review and edit the proposed time entries below. Project, Activity, and Work Item fields provide suggestions from historical data.
           </DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[60vh] pr-4">
+        <ScrollArea className="pr-4">
           <Table className="min-w-full">
             <TableHeader>
               <TableRow>

@@ -39,7 +39,7 @@ export function ShorthandModal({ isOpen, onClose, currentShorthand, onSave }: Sh
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[90vw] md:max-w-[80vw] lg:max-w-[70vw] xl:max-w-[60vw] rounded-lg shadow-xl">
+      <DialogContent className="sm:max-w-[90vw] md:max-w-[80vw] lg:max-w-[70vw] xl:max-w-[70vw] rounded-lg shadow-xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">My Shorthand / Abbreviations</DialogTitle>
           <DialogDescription>
@@ -56,7 +56,7 @@ export function ShorthandModal({ isOpen, onClose, currentShorthand, onSave }: Sh
             value={shorthand}
             onChange={(e) => setShorthand(e.target.value)}
             placeholder="e.g., PM = Project Manager&#10;UI dev = User Interface development"
-            rows={8}
+            rows={30}
             className="text-sm p-3 rounded-md shadow-inner focus:ring-accent focus:border-accent"
           />
         </div>
