@@ -21,15 +21,25 @@ def log_message(message):
     # For now, print to stderr so Node.js can capture it if needed
     print(f"PYTHON_SCRIPT_LOG: {message}", file=sys.stderr)
 
-def get_date_three_months_ago():
-    """Helper to get the date three months ago for filtering."""
-    return datetime.now() - timedelta(days=90)
+def get_date_days_ago(days=90):
+    """Helper to get the date a specified number of days ago for filtering.
+    
+    Args:
+        days (int): Number of days to go back from today
+        
+    Returns:
+        datetime: Date object representing days_ago days in the past
+    """
+    return datetime.now() - timedelta(days=days)
 
-def scrape_timesheet_data():
+def scrape_timesheet_data(days_ago=30):
     """
     Scrapes timesheet data from XYZ.com.
     This is a conceptual script and needs actual selectors and logic for XYZ.com.
     Hours are generally not scraped or considered essential for historical context for AI.
+    
+    Args:
+        days_ago (int): Number of days in the past to retrieve data for. Default is 90 days.
     """
     entries = []
     driver = None
@@ -72,9 +82,9 @@ def scrape_timesheet_data():
             # Decide if to continue or exit. For now, try to continue if possible.
             
         # 3. Capture data in the grid
-        three_months_ago_date = get_date_three_months_ago()        
+        target_date = get_date_days_ago(days=days_ago)        
         
-        max_scrolls = 4 
+        max_scrolls = 10 
         scroll_count = 0
         latest_date_this_scroll = datetime.now() # Initialize with current date
 
@@ -102,6 +112,8 @@ def scrape_timesheet_data():
                     workitem_str = workitem_cells[row_idx].web_element.get_attribute('value').strip() if row_idx < len(workitem_cells) else ""
                     comment_str = external_comments_cells[row_idx].web_element.get_attribute('value').strip() if row_idx < len(external_comments_cells) else ""
                     
+                    # Log the 5 variables for debugging
+                    log_message(f"Row {row_idx} - Date: '{date_str}', Project: '{project_str}', Activity: '{activity_str}', WorkItem: '{workitem_str}', Comment: '{comment_str}'")
                     entry_date_obj = None
                     try:
                         entry_date_obj = datetime.strptime(date_str, "%m/%d/%Y") # Adjust format as needed
@@ -120,7 +132,24 @@ def scrape_timesheet_data():
                         "Hours": "", # Hours are not critical for historical context for AI and often not reliably scraped.
                         "Comment": comment_str
                     }
-                    entries.append(entry_data)
+
+                    if entry_date_obj < target_date:
+                        log_message(f"Reached data older than {days_ago} days based on earliest date in current view. Stopping scroll.")
+                        break      
+                    # Check if this entry already exists (by Date, Project, Activity, WorkItem)
+                    is_duplicate = False
+                    for existing_entry in entries:
+                        if (existing_entry["Date"] == formatted_date_str and
+                            existing_entry["Project"] == project_str and
+                            existing_entry["Activity"] == activity_str and
+                            existing_entry["WorkItem"] == workitem_str):
+                            is_duplicate = True
+                            log_message(f"Skipping duplicate entry for {formatted_date_str}/{project_str}/{activity_str}/{workitem_str}")
+                            break
+
+                    # Only add the entry if it's not a duplicate
+                    if not is_duplicate:
+                        entries.append(entry_data)
                     row_idx += 1
                 
                 latest_date_this_scroll = current_earliest_date
@@ -129,11 +158,8 @@ def scrape_timesheet_data():
                 log_message(f"Error processing a row set ({row_idx}): {e_row}")
                 # Potentially break or continue depending on severity
                 break 
-            
-            # Check if the latest date found in this scroll pass is older than 3 months
-            if latest_date_this_scroll < three_months_ago_date:
-                log_message("Reached data older than 3 months based on earliest date in current view. Stopping scroll.")
-                break            
+              # Check if the latest date found in this scroll pass is older than the target date
+                  
             
             log_message(f"Scrolling down... (Scroll attempt {scroll_count + 1})")
             press(PAGE_DOWN)
@@ -173,8 +199,17 @@ if __name__ == "__main__":
     # sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
     # sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf8', buffering=1)
     
+    # Check if days parameter was provided as command line argument
+    days = 30  # Default to 90 days
+    if len(sys.argv) > 1:
+        try:
+            days = int(sys.argv[1])
+            log_message(f"Using provided days parameter: {days}")
+        except ValueError:
+            log_message(f"Invalid days parameter provided: {sys.argv[1]}. Using default (30 days)")
+    
     log_message("Python script execution started.")
-    scrape_timesheet_data()
+    scrape_timesheet_data(days_ago=days)
     log_message("Python script execution finished.")
 
     
