@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import type { UserSettings } from '@/types/settings';
 import { defaultUserSettings } from '@/types/settings';
+import { initialTimeEntryAIChatPrompt as hardcodedDefaultPrompt } from '@/lib/constants'; // Import the default prompt from constants
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -16,7 +17,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Cog } from 'lucide-react';
+import { Cog, RotateCcw } from 'lucide-react'; // Added RotateCcw for restore icon
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -27,19 +28,34 @@ interface SettingsModalProps {
 
 export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: SettingsModalProps) {
   const [historicalDays, setHistoricalDays] = useState(defaultUserSettings.historicalDataDays);
-  const [promptOverride, setPromptOverride] = useState<string>(defaultUserSettings.promptOverrideText || '');
+  const [promptOverrideTextState, setPromptOverrideTextState] = useState<string>('');
 
   useEffect(() => {
     if (isOpen) {
       setHistoricalDays(currentSettings.historicalDataDays || defaultUserSettings.historicalDataDays);
-      setPromptOverride(currentSettings.promptOverrideText || '');
+      // If promptOverrideText from DB is null (use default), show the hardcoded default prompt.
+      // Otherwise, show the saved override (which could be an empty string).
+      setPromptOverrideTextState(currentSettings.promptOverrideText === null ? hardcodedDefaultPrompt : currentSettings.promptOverrideText);
     }
   }, [isOpen, currentSettings]);
 
+  const handleRestoreDefaultPrompt = () => {
+    setPromptOverrideTextState(hardcodedDefaultPrompt);
+  };
+
   const handleSave = () => {
+    let promptToSave: string | null;
+    // If the text in the textarea is identical to the hardcoded default prompt,
+    // save null to the database, signifying "use the system's hardcoded default".
+    if (promptOverrideTextState === hardcodedDefaultPrompt) {
+      promptToSave = null;
+    } else {
+      promptToSave = promptOverrideTextState; // Save the actual text (could be empty string)
+    }
+
     onSave({
       historicalDataDays: Number(historicalDays) || defaultUserSettings.historicalDataDays,
-      promptOverrideText: promptOverride.trim() === '' ? null : promptOverride.trim(),
+      promptOverrideText: promptToSave,
     });
     onClose();
   };
@@ -78,19 +94,32 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="prompt-override" className="text-sm font-medium">
-              System Prompt Override (Advanced)
-            </Label>
+            <div className="flex justify-between items-center">
+              <Label htmlFor="prompt-override" className="text-sm font-medium">
+                System Prompt Override (Advanced)
+              </Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRestoreDefaultPrompt}
+                className="text-xs"
+                aria-label="Restore default system prompt"
+              >
+                <RotateCcw className="mr-1 h-3 w-3" />
+                Restore Default
+              </Button>
+            </div>
             <Textarea
               id="prompt-override"
-              value={promptOverride}
-              onChange={(e) => setPromptOverride(e.target.value)}
-              placeholder="Leave blank to use the default system prompt. Enter your custom prompt here to override."
-              rows={10}
-              className="text-sm p-3 rounded-md shadow-inner focus:ring-accent focus:border-accent"
+              value={promptOverrideTextState}
+              onChange={(e) => setPromptOverrideTextState(e.target.value)}
+              placeholder="Enter your custom prompt here to override the default system prompt."
+              rows={15} // Increased rows for better visibility of default prompt
+              className="text-sm p-3 rounded-md shadow-inner focus:ring-accent focus:border-accent font-mono" // Added font-mono for prompt readability
             />
             <p className="text-xs text-muted-foreground">
-              Allows you to customize the main instruction given to the AI. Use with caution.
+              This prompt instructs the AI. Modifying it can significantly change AI behavior.
+              Click "Restore Default" and save if you want to revert to the standard system prompt.
             </p>
           </div>
         </div>
