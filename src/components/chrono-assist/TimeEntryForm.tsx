@@ -3,6 +3,8 @@
 
 import { useState, useTransition, useEffect, useCallback } from 'react';
 import type { TimeEntry } from '@/types/time-entry';
+import type { UserSettings, UserSettingsWithDefaults } from '@/types/settings'; // New import
+import { defaultUserSettings } from '@/types/settings'; // New import
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
@@ -10,7 +12,8 @@ import { useToast } from '@/hooks/use-toast';
 import { PreviewEntriesModal } from './PreviewEntriesModal';
 import { HistoricalDataModal } from './HistoricalDataModal';
 import { ShorthandModal } from './ShorthandModal';
-import { GenerateOrAddModal } from './GenerateOrAddModal'; // New Modal
+import { GenerateOrAddModal } from './GenerateOrAddModal';
+import { SettingsModal } from './SettingsModal'; // New import
 import { 
   getProposedEntriesAction, 
   submitTimeEntriesAction, 
@@ -21,10 +24,12 @@ import {
   getUserMainNotesAction,
   saveUserMainNotesAction,
   getUserProposedEntriesAction,
-  saveUserProposedEntriesAction
+  saveUserProposedEntriesAction,
+  getUserSettingsAction, // New import
+  saveUserSettingsAction // New import
 } from '@/lib/actions';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Lightbulb, History, Send, ChevronDown, Eye, RefreshCw, NotebookPen, Edit3, Brain, ClipboardList } from 'lucide-react';
+import { Lightbulb, History, Send, ChevronDown, Eye, RefreshCw, NotebookPen, Edit3, Brain, ClipboardList, Cog } from 'lucide-react'; // Added Cog
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,23 +39,22 @@ import {
 import { useDebouncedCallback } from 'use-debounce';
 import { v4 as uuidv4 } from 'uuid';
 
-
-// Helper to generate unique IDs, moved here to be accessible by merge logic
 const generateProposedEntryId = () => `proposed_${Date.now()}_${uuidv4().substring(0, 8)}`;
-
 
 export function TimeEntryForm() {
   const [notes, setNotes] = useState('');
   const [shorthandNotes, setShorthandNotes] = useState('');
+  const [userSettings, setUserSettings] = useState<UserSettingsWithDefaults>(defaultUserSettings); // New state
   const [proposedEntries, setProposedEntries] = useState<TimeEntry[]>([]);
   const [localHistoricalData, setLocalHistoricalData] = useState<TimeEntry[]>([]);
   
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [isHistoricalModalOpen, setIsHistoricalModalOpen] = useState(false);
   const [isShorthandModalOpen, setIsShorthandModalOpen] = useState(false);
-  const [isGenerateOrAddModalOpen, setIsGenerateOrAddModalOpen] = useState(false); // New state
+  const [isGenerateOrAddModalOpen, setIsGenerateOrAddModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false); // New state
 
-  const [isProcessing, startTransitionProcessing] = useTransition(); // General processing state
+  const [isProcessing, startTransitionProcessing] = useTransition(); 
   const [isPendingHistoricalRefresh, startTransitionHistoricalRefresh] = useTransition();
   const [isPendingInitialLoad, startTransitionInitialLoad] = useTransition();
 
@@ -71,14 +75,16 @@ export function TimeEntryForm() {
   useEffect(() => {
     startTransitionInitialLoad(async () => {
       try {
-        const [loadedNotes, loadedShorthand, dbHistoricalResult, loadedProposed] = await Promise.all([
+        const [loadedNotes, loadedShorthand, dbHistoricalResult, loadedProposed, loadedSettings] = await Promise.all([
           getUserMainNotesAction(),
           getUserShorthandAction(),
           getHistoricalDataAction(),
-          getUserProposedEntriesAction()
+          getUserProposedEntriesAction(),
+          getUserSettingsAction() // Load settings
         ]);
         setNotes(loadedNotes);
         setShorthandNotes(loadedShorthand);
+        setUserSettings(loadedSettings); // Set settings state
         
         if (dbHistoricalResult.success) {
           setLocalHistoricalData(dbHistoricalResult.data);
@@ -134,14 +140,14 @@ export function TimeEntryForm() {
     setIsGenerateOrAddModalOpen(false);
     startTransitionProcessing(async () => {
       try {
+        // shorthandNotes and promptOverride (from userSettings) are now passed internally by getProposedEntriesAction
         const aiResult = await getProposedEntriesAction(notes, shorthandNotes);
         let finalEntries: TimeEntry[] = [];
 
         if (mode === 'generate') {
           finalEntries = aiResult.filteredEntries;
-        } else { // mode === 'add'
+        } else { 
           const existingEntries = await getUserProposedEntriesAction();
-          // Ensure new entries from AI get unique IDs if merged
           const newAiEntriesWithUniqueIds = aiResult.filteredEntries.map(entry => ({
             ...entry,
             id: generateProposedEntryId() 
@@ -190,7 +196,7 @@ export function TimeEntryForm() {
                     description: "There are no time entries to edit. Use Timesheet AI to generate some first.",
                     variant: "default",
                 });
-                setProposedEntries([]); // Ensure local state is also empty
+                setProposedEntries([]); 
                 return;
             }
             setProposedEntries(currentEntries);
@@ -205,9 +211,7 @@ export function TimeEntryForm() {
     });
   };
 
-
   const handleSubmitTime = () => {
-    // Always fetch latest proposed entries from DB before submission
     startTransitionProcessing(async () => {
         const latestProposedEntriesFromDb = await getUserProposedEntriesAction();
         if (!latestProposedEntriesFromDb || latestProposedEntriesFromDb.length === 0) {
@@ -218,14 +222,12 @@ export function TimeEntryForm() {
             });
             return;
         }
-        setProposedEntries(latestProposedEntriesFromDb); // Update state to reflect what's being submitted
+        setProposedEntries(latestProposedEntriesFromDb); 
         performSubmit(latestProposedEntriesFromDb);
     });
   };
 
   const performSubmit = (entriesToSubmit: TimeEntry[]) => {
-    // This transition is already wrapped by handleSubmitTime's transition
-    // startTransitionProcessing(async () => { // Removed redundant transition
       (async () => {
         try {
           const result = await submitTimeEntriesAction(entriesToSubmit);
@@ -236,7 +238,7 @@ export function TimeEntryForm() {
           });
           if (result.success) {
             setProposedEntries([]); 
-            await saveUserProposedEntriesAction([]); // Clear from DB as well
+            await saveUserProposedEntriesAction([]); 
             handleRefreshHistoricalDataFromScript(); 
           }
         } catch (error) {
@@ -247,12 +249,12 @@ export function TimeEntryForm() {
           });
         }
       })();
-    // }); // Removed redundant transition
   };
 
   const handleRefreshHistoricalDataFromScript = useCallback(() => {
     startTransitionHistoricalRefresh(async () => {
       try {
+        // refreshHistoricalDataFromScriptAction will use settings from DB
         const scriptResult = await refreshHistoricalDataFromScriptAction();
         if (scriptResult.success) {
           setLocalHistoricalData(scriptResult.data);
@@ -285,7 +287,7 @@ export function TimeEntryForm() {
         });
       }
     });
-  }, [startTransitionHistoricalRefresh, toast]);
+  }, [startTransitionHistoricalRefresh, toast]); // userSettings is not needed here as action reads it
 
   const handleSaveModalEntries = (updatedEntries: TimeEntry[]) => {
     startTransitionProcessing(async () => { 
@@ -310,7 +312,7 @@ export function TimeEntryForm() {
     startTransitionProcessing(async () => { 
         try {
             await saveUserShorthandAction(newShorthand);
-            setShorthandNotes(newShorthand); // Update local state
+            setShorthandNotes(newShorthand); 
             toast({
                 title: "Shorthand Updated",
                 description: "Your shorthand notes have been saved.",
@@ -324,10 +326,37 @@ export function TimeEntryForm() {
         }
     });
   };
+  
+  const handleSaveSettings = (newSettings: UserSettings) => {
+    startTransitionProcessing(async () => {
+      try {
+        const result = await saveUserSettingsAction(newSettings);
+        if (result.success) {
+          setUserSettings(prev => ({...prev, ...newSettings})); // Update local state
+          toast({
+            title: "Settings Updated",
+            description: result.message,
+          });
+        } else {
+          toast({
+            title: "Error Saving Settings",
+            description: result.message,
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        toast({
+          title: "Error Saving Settings",
+          description: (error as Error).message || "Failed to save settings.",
+          variant: "destructive",
+        });
+      }
+    });
+  };
 
   const handleAddToShorthandEntry = (shorthandLine: string) => {
     const newShorthand = shorthandNotes + (shorthandNotes ? '\n' : '') + shorthandLine;
-    handleSaveShorthand(newShorthand); // This will also update state and call server action
+    handleSaveShorthand(newShorthand); 
     toast({
       title: "Shorthand Updated",
       description: `Added: "${shorthandLine.trim()}" to your shorthand notes.`,
@@ -338,14 +367,26 @@ export function TimeEntryForm() {
 
   return (
     <Card className="w-full shadow-xl rounded-lg">
-      <CardHeader>
-        <CardTitle className="text-3xl font-bold flex items-center gap-2">
-          <Lightbulb className="w-8 h-8 text-primary" />
-          AI Time Entry Assistant
-        </CardTitle>
-        <CardDescription className="text-md">
-          Enter your work notes below. The AI will help suggest time entries based on historical data. Use the 'My Shorthand' button to define common abbreviations. Your notes are saved automatically.
-        </CardDescription>
+      <CardHeader className="flex flex-row justify-between items-center">
+        <div>
+          <CardTitle className="text-3xl font-bold flex items-center gap-2">
+            <Lightbulb className="w-8 h-8 text-primary" />
+            AI Time Entry Assistant
+          </CardTitle>
+          <CardDescription className="text-md">
+            Enter your work notes below. The AI will help suggest time entries. Your notes are saved automatically.
+          </CardDescription>
+        </div>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={() => setIsSettingsModalOpen(true)} 
+          disabled={isLoading}
+          aria-label="Open application settings"
+          className="text-muted-foreground hover:text-primary"
+        >
+          <Cog className="h-6 w-6" />
+        </Button>
       </CardHeader>
       <CardContent className="space-y-6">
         <div>
@@ -434,7 +475,7 @@ export function TimeEntryForm() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleSubmitTime}
-                disabled={isLoading} // Removed proposedEntries.length check, as it's handled inside handleSubmitTime
+                disabled={isLoading} 
                 aria-label="Submit current time entries"
               >
                 <Send className="mr-2 h-4 w-4" /> Submit Entries
@@ -469,7 +510,12 @@ export function TimeEntryForm() {
         currentShorthand={shorthandNotes}
         onSave={handleSaveShorthand}
       />
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        currentSettings={userSettings}
+        onSave={handleSaveSettings}
+      />
     </Card>
   );
 }
-

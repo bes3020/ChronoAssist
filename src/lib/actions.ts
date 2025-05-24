@@ -4,33 +4,31 @@ import type { InitialTimeEntryInput, InitialTimeEntryOutput } from '@/ai/flows/i
 import { initialTimeEntry } from '@/ai/flows/initial-time-entry-prompt';
 import { revalidatePath } from 'next/cache';
 import type { TimeEntry } from '@/types/time-entry';
+import type { UserSettings, UserSettingsWithDefaults } from '@/types/settings'; // New import
+import { defaultUserSettings } from '@/types/settings'; // New import
 import { parseISO, format } from 'date-fns';
 import { spawnSync } from 'child_process';
 import path from 'path';
 import { getAnonymousUserId } from '@/lib/auth';
-import * as db from '@/lib/db'; // Import all exports from db.ts
+import * as db from '@/lib/db'; 
 import { v4 as uuidv4 } from 'uuid';
 
-// Initialize DB (safe to call multiple times, only runs once)
 db.initializeDb();
 
-// Helper to generate unique IDs for client-side rendering of proposed entries
 const generateProposedEntryId = () => `proposed_${Date.now()}_${uuidv4().substring(0, 8)}`;
 
 
 export async function getProposedEntriesAction(notes: string, shorthandNotes?: string): Promise<{ rawAiOutputCount: number; filteredEntries: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
-  // ensureUserRecordsExist is important if other operations depend on user records, but not strictly for fetching AI suggestions
-  // db.ensureUserRecordsExist(userId); 
+  db.ensureUserRecordsExist(userId); 
 
   if (!notes.trim()) {
-    // If notes are empty, AI won't be called, return empty.
-    // Clearing proposed entries is now handled by saveUserProposedEntriesAction or specific logic in TimeEntryForm.
     return { rawAiOutputCount: 0, filteredEntries: [] };
   }
 
   try {
     const historicalEntriesFromDb = db.getHistoricalEntries(userId, 3); 
+    const userSettings = db.getUserSettings(userId); // Get user settings
 
     const historicalDataForAI = historicalEntriesFromDb.map(entry => ({ 
       Date: entry.Date,
@@ -38,12 +36,14 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
       Activity: entry.Activity,
       WorkItem: entry.WorkItem,
       Comment: entry.Comment,
+      // Hours are not passed to AI
     }));
 
     const aiInput: InitialTimeEntryInput = {
       notes,
       historicalData: historicalDataForAI, 
       shorthandNotes: shorthandNotes?.trim() ? shorthandNotes : undefined,
+      promptOverride: userSettings.promptOverrideText || undefined, // Pass prompt override
     };
     const aiOutput: InitialTimeEntryOutput = await initialTimeEntry(aiInput);
     console.log("Raw AI Output (from getProposedEntriesAction):", JSON.stringify(aiOutput, null, 2));
@@ -56,12 +56,10 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
     
     console.log("Processed AI Entries by getProposedEntriesAction (no DB save here):", JSON.stringify(processedEntries, null, 2));
     
-    // DO NOT SAVE TO DB HERE. Saving is handled by TimeEntryForm after user choice.
     return { rawAiOutputCount: aiOutput.length, filteredEntries: processedEntries };
 
   } catch (error) {
     console.error("Error getting proposed entries from AI (in getProposedEntriesAction):", error);
-    // On error, return empty, don't try to fetch from DB here.
     return { rawAiOutputCount: 0, filteredEntries: [] };
   }
 }
@@ -114,8 +112,7 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
     }
     
     db.addHistoricalEntries(userId, entries.map(e => ({...e, id: e.id || generateProposedEntryId() })));
-    // db.clearProposedEntries(userId); // Clearing proposed entries is now part of saveUserProposedEntriesAction if called with empty array
-
+    
     console.log("Python submission script executed successfully:", scriptResult.message);
     revalidatePath('/'); 
     return { success: true, message: scriptResult.message || "Time entries submitted successfully and saved to local history." };
@@ -126,13 +123,12 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
   }
 }
 
-
 export async function getHistoricalDataAction(): Promise<{ success: boolean; message: string; data: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId);
   try {
     console.log(`Fetching historical data from DB for user ${userId}...`);
-    const data = db.getHistoricalEntries(userId); 
+    const data = db.getHistoricalEntries(userId, 3); // Still uses 3 months for direct DB view
     return { success: true, message: "Historical data fetched from local storage.", data };
   } catch (error) {
     console.error("Error fetching historical data from DB:", error);
@@ -140,16 +136,17 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
   }
 }
 
-
 export async function refreshHistoricalDataFromScriptAction(): Promise<{ success: boolean; message: string, data: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId); 
+  const userSettings = await db.getUserSettings(userId); // Get user settings
 
-  console.log(`Attempting to refresh historical data from script for user ${userId}...`);
+  console.log(`Attempting to refresh historical data from script for user ${userId} with ${userSettings.historicalDataDays} days setting...`);
   const pythonScriptPath = path.join(process.cwd(), 'src', 'scripts', 'scrape_timesheets.py');
   
   try {
-    const pythonProcess = spawnSync('python', [pythonScriptPath], { encoding : 'utf8', timeout: 300000 });
+    // Pass historicalDataDays setting to the script
+    const pythonProcess = spawnSync('python', [pythonScriptPath, userSettings.historicalDataDays.toString()], { encoding : 'utf8', timeout: 300000 });
 
     if (pythonProcess.error) {
       console.error('Failed to start Python script:', pythonProcess.error);
@@ -177,7 +174,7 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
         return { success: true, message: `Historical data script ran but returned no new data. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
     }
 
-    type ScrapedEntryMaybeNoHours = Omit<TimeEntry, 'id' | 'Hours'> & { Hours?: number };
+    type ScrapedEntryMaybeNoHours = Omit<TimeEntry, 'id' | 'Hours'> & { Hours?: number | string }; // Allow string for hours from script
     let scrapedEntries: ScrapedEntryMaybeNoHours[];
     try {
         scrapedEntries = JSON.parse(rawData);
@@ -192,18 +189,19 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
         ...entry,
         id: `scraped_${Date.now()}_${index}`, 
         Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0],
-        Hours: 0, 
+        Hours: 0, // Hours from scrape are not used for storage
     }));
 
     db.addHistoricalEntries(userId, processedScrapedData); 
     
-    const allHistoricalData = db.getHistoricalEntries(userId, 3); 
+    const allHistoricalData = db.getHistoricalEntries(userId, null); // Get all data after refresh
 
     if (allHistoricalData.length === 0) {
         return { success: true, message: "Successfully fetched data, but no time entries were found.", data: [] };
     }
     
     console.log(`Successfully processed ${processedScrapedData.length} new entries. Total relevant historical entries for user ${userId}: ${allHistoricalData.length}.`);
+    revalidatePath('/');
     return { success: true, message: "Historical data fetched and updated successfully.", data: allHistoricalData };
 
   } catch (error) {
@@ -212,7 +210,6 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
     return { success: false, message: `An unexpected error occurred: ${(error as Error).message}. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
   }
 }
-
 
 export async function getUserShorthandAction(): Promise<string> {
   const userId = await getAnonymousUserId();
@@ -251,7 +248,6 @@ export async function saveUserMainNotesAction(text: string): Promise<{ success: 
   }
 }
 
-
 export async function getUserProposedEntriesAction(): Promise<TimeEntry[]> {
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId); 
@@ -262,7 +258,6 @@ export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promi
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId); 
   try {
-    // If entries is empty, this will effectively clear proposed entries for the user.
     db.saveProposedEntries(userId, entries);
     revalidatePath('/');
     if (entries.length === 0) {
@@ -272,5 +267,25 @@ export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promi
   } catch (error) {
     console.error("Error saving proposed entries:", error);
     return { success: false, message: "Failed to update proposed entries." };
+  }
+}
+
+// User Settings Actions
+export async function getUserSettingsAction(): Promise<UserSettingsWithDefaults> {
+  const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensures settings record exists with defaults if not present
+  return db.getUserSettings(userId);
+}
+
+export async function saveUserSettingsAction(settings: Partial<UserSettings>): Promise<{ success: boolean; message: string }> {
+  const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId); // Ensure parent records are there
+  try {
+    db.saveUserSettings(userId, settings);
+    revalidatePath('/');
+    return { success: true, message: "Settings saved." };
+  } catch (error) {
+    console.error("Error saving user settings:", error);
+    return { success: false, message: "Failed to save settings." };
   }
 }

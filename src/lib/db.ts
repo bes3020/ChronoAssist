@@ -1,5 +1,8 @@
+
 import Database from 'better-sqlite3';
 import type { TimeEntry } from '@/types/time-entry';
+import type { UserSettings, UserSettingsWithDefaults } from '@/types/settings'; // New import
+import { defaultUserSettings } from '@/types/settings'; // New import
 import crypto from 'crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,8 +16,6 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const db = new Database(DB_FILE_PATH);
-// console.log(`SQLite database initialized at ${DB_FILE_PATH}`);
-
 
 let dbInitialized = false;
 
@@ -34,10 +35,18 @@ export function initializeDb() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id TEXT PRIMARY KEY,
+      historical_data_days INTEGER DEFAULT ${defaultUserSettings.historicalDataDays},
+      prompt_override_text TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES user_shorthand(user_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+    );
+
     CREATE TABLE IF NOT EXISTS user_historical_entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, -- SQLite's internal autoincrementing ID
+      id INTEGER PRIMARY KEY AUTOINCREMENT, 
       user_id TEXT NOT NULL,
-      client_id TEXT, -- This is the ID used by the application (e.g., from proposed entries, or scraped data)
+      client_id TEXT, 
       date TEXT NOT NULL,
       project TEXT NOT NULL,
       activity TEXT NOT NULL,
@@ -46,16 +55,14 @@ export function initializeDb() {
       comment TEXT,
       entry_hash TEXT NOT NULL UNIQUE, 
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      -- Foreign key constraints removed as per user request to avoid dependency
     );
     CREATE INDEX IF NOT EXISTS idx_historical_user_id_date ON user_historical_entries(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_historical_entry_hash ON user_historical_entries(entry_hash);
 
-
     CREATE TABLE IF NOT EXISTS user_proposed_entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, -- SQLite's internal autoincrementing ID
+      id INTEGER PRIMARY KEY AUTOINCREMENT, 
       user_id TEXT NOT NULL,
-      client_id TEXT NOT NULL UNIQUE, -- This is the ID used by the application (e.g., "proposed_...")
+      client_id TEXT NOT NULL UNIQUE, 
       date TEXT NOT NULL,
       project TEXT NOT NULL,
       activity TEXT NOT NULL,
@@ -64,17 +71,13 @@ export function initializeDb() {
       comment TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES user_shorthand(user_id)  ON DELETE CASCADE
-        DEFERRABLE INITIALLY DEFERRED,
-      FOREIGN KEY (user_id) REFERENCES user_main_notes(user_id) ON DELETE CASCADE
         DEFERRABLE INITIALLY DEFERRED
     );
     CREATE INDEX IF NOT EXISTS idx_proposed_user_id ON user_proposed_entries(user_id);
   `);
   dbInitialized = true;
-  // console.log('Database tables ensured.');
 }
 
-// Initialize DB on module load
 initializeDb();
 
 function generateEntryHash(entry: Omit<TimeEntry, 'id' | 'clientId'>): string {
@@ -82,7 +85,6 @@ function generateEntryHash(entry: Omit<TimeEntry, 'id' | 'clientId'>): string {
   return crypto.createHash('sha256').update(hashableString).digest('hex');
 }
 
-// Shorthand Notes
 export function getShorthand(userId: string): string | null {
   const stmt = db.prepare('SELECT shorthand_text FROM user_shorthand WHERE user_id = ?');
   const result = stmt.get(userId) as { shorthand_text: string } | undefined;
@@ -100,7 +102,6 @@ export function saveShorthand(userId: string, text: string): void {
   stmt.run(userId, text);
 }
 
-// Main Notes
 export function getMainNotes(userId: string): string | null {
   const stmt = db.prepare('SELECT notes_text FROM user_main_notes WHERE user_id = ?');
   const result = stmt.get(userId) as { notes_text: string } | undefined;
@@ -118,19 +119,52 @@ export function saveMainNotes(userId: string, text: string): void {
   stmt.run(userId, text);
 }
 
-// Function to ensure user_id exists in parent tables (user_shorthand, user_main_notes)
+// User Settings
+export function getUserSettings(userId: string): UserSettingsWithDefaults {
+  const stmt = db.prepare('SELECT historical_data_days, prompt_override_text FROM user_settings WHERE user_id = ?');
+  const result = stmt.get(userId) as UserSettings | undefined;
+  if (result) {
+    return {
+        historicalDataDays: result.historicalDataDays,
+        promptOverrideText: result.promptOverrideText === undefined ? null : result.promptOverrideText, // Ensure null if undefined
+    };
+  }
+  return { ...defaultUserSettings }; // Return defaults if no settings found
+}
+
+export function saveUserSettings(userId: string, settings: Partial<UserSettings>): void {
+  // Fetch existing settings to merge, or use defaults
+  const existingSettings = getUserSettings(userId);
+  const newSettings = { ...existingSettings, ...settings };
+
+  const stmt = db.prepare(`
+    INSERT INTO user_settings (user_id, historical_data_days, prompt_override_text)
+    VALUES (?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+    historical_data_days = excluded.historical_data_days,
+    prompt_override_text = excluded.prompt_override_text,
+    updated_at = CURRENT_TIMESTAMP
+  `);
+  stmt.run(userId, newSettings.historicalDataDays, newSettings.promptOverrideText);
+}
+
+
 export function ensureUserRecordsExist(userId: string): void {
+  // Ensure user_shorthand and user_main_notes exist, as user_settings depends on user_shorthand
   const currentShorthand = getShorthand(userId);
   saveShorthand(userId, currentShorthand || '');
 
   const currentMainNotes = getMainNotes(userId);
   saveMainNotes(userId, currentMainNotes || '');
+  
+  // Now ensure user_settings exists
+  const currentSettings = getUserSettings(userId); // This will return defaults if not found
+  // Save ensures the record is there, even if it's just defaults
+  saveUserSettings(userId, currentSettings); 
 }
 
 
-// Historical Entries
 export function getHistoricalEntries(userId: string, limitLastMonths: number | null = 3): TimeEntry[] {
-  // Select SQLite's 'id' as 'sqlite_pk_id' for fallback. 'client_id' is the main app-level ID.
   let query = 'SELECT id as sqlite_pk_id, client_id, date, project, activity, work_item, hours, comment FROM user_historical_entries WHERE user_id = ?';
   const params: any[] = [userId];
 
@@ -147,14 +181,13 @@ export function getHistoricalEntries(userId: string, limitLastMonths: number | n
   const results = stmt.all(...params) as any[];
   
   return results.map(dbRow => {
-    const row = dbRow as any; // To access properties with original DB casing
+    const row = dbRow as any; 
     return {
-      // Use client_id if available, otherwise construct one from SQLite's primary key
       id: row.client_id || `db_hist_sqpk_${row.sqlite_pk_id}`, 
       Date: row.date,
       Project: row.project,
       Activity: row.activity,
-      WorkItem: row.work_item, // Map 'work_item' from DB to 'WorkItem'
+      WorkItem: row.work_item, 
       Hours: row.hours,
       Comment: row.comment,
     };
@@ -170,10 +203,10 @@ export function addHistoricalEntries(userId: string, entries: TimeEntry[]): void
 
   db.transaction(() => {
     for (const entry of entries) {
-      const hash = generateEntryHash(entry); // generateEntryHash expects PascalCase properties
+      const hash = generateEntryHash(entry); 
       insertStmt.run(
         userId,
-        entry.id, // This entry.id is the application-level ID (e.g., "scraped_...", "proposed_...")
+        entry.id, 
         entry.Date,
         entry.Project,
         entry.Activity,
@@ -186,24 +219,22 @@ export function addHistoricalEntries(userId: string, entries: TimeEntry[]): void
   })();
 }
 
-// Proposed Entries
 export function getProposedEntries(userId: string): TimeEntry[] {
-  // client_id is NOT NULL and UNIQUE in user_proposed_entries, so it's reliable as 'id'
   const stmt = db.prepare(`
     SELECT client_id, date, project, activity, work_item, hours, comment 
     FROM user_proposed_entries 
     WHERE user_id = ? 
-    ORDER BY id ASC -- 'id' here refers to the SQLite autoincrement PK of user_proposed_entries
+    ORDER BY id ASC 
   `); 
   const results = stmt.all(userId) as any[];
   return results.map(dbRow => {
-    const row = dbRow as any; // To access properties with original DB casing
+    const row = dbRow as any; 
     return {
-      id: row.client_id, // This is the application-level ID (e.g., "proposed_...")
+      id: row.client_id, 
       Date: row.date,
       Project: row.project,
       Activity: row.activity,
-      WorkItem: row.work_item, // Map 'work_item' from DB to 'WorkItem'
+      WorkItem: row.work_item, 
       Hours: row.hours,
       Comment: row.comment,
     };
@@ -223,7 +254,7 @@ export function saveProposedEntries(userId: string, entries: TimeEntry[]): void 
     for (const entry of entries) {
       insertStmt.run(
         userId,
-        entry.id, // This entry.id is the application-level ID (e.g., "proposed_...")
+        entry.id, 
         entry.Date,
         entry.Project,
         entry.Activity,
@@ -240,10 +271,8 @@ export function clearProposedEntries(userId: string): void {
   stmt.run(userId);
 }
 
-// Utility to get the most recent historical data timestamp for a user
 export function getLatestHistoricalEntryTimestamp(userId: string): string | null {
   const stmt = db.prepare('SELECT MAX(created_at) as latest_timestamp FROM user_historical_entries WHERE user_id = ?');
   const result = stmt.get(userId) as { latest_timestamp: string } | undefined;
   return result?.latest_timestamp ?? null;
 }
-
