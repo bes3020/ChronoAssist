@@ -50,7 +50,7 @@ export async function initialTimeEntry(input: InitialTimeEntryInput): Promise<In
 
 const defaultPrompt = `You are an AI assistant designed to match user notes to time entries using historical data.
 
-Analyze the following notes provided by the user.  Each new line is a new time entry.  Only return the best match for each line.  If there is no date specified, use today's date: {{today}}.  If a weekday is specified, use this weeks date for that day:
+Analyze the following notes provided by the user.  If there is no date specified, use today's date: {{today}}.  If a weekday is specified, use the date relative to today for that day:
 {{notes}}
 
 {{#if shorthandNotes}}
@@ -66,7 +66,7 @@ Date: {{this.Date}}, Project: {{this.Project}}, Activity: {{this.Activity}}, Wor
 {{/each}}
 
 Return a JSON array of time entries that match the user notes. Make sure the "Hours" field is a number in .25 increments (you should suggest a reasonable number of hours based on the notes, e.g. default to 1 or 2 if not specified).
-Ensure all entries match the historical data provided for Project, Activity, and WorkItem, and extrapolate if needed.
+Ensure all entries match the historical data provided for Project, Activity, and WorkItem.  This means Project has specific Activities and Activities have specific work items.
 Format your response as JSON. Do not include any additional text or markdown specifiers like \`\`\`json or \`\`\`.
 `;
 
@@ -84,7 +84,13 @@ const initialTimeEntryFlow = ai.defineFlow(
     outputSchema: InitialTimeEntryOutputSchema,
   },
   async input => {
-    const {output} = await initialTimeEntryPrompt(input);
+    // Add today's date to the input in YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Merge the input with the today variable
+    const enrichedInput = { ...input, today };
+    
+    const {output} = await initialTimeEntryPrompt(enrichedInput);
     console.log('AI output:', output);
     // Ensure output is always an array, even if AI fails to produce valid JSON or returns null/undefined
     if (!output || !Array.isArray(output)) {
