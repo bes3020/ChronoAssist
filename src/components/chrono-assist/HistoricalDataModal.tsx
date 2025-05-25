@@ -30,7 +30,7 @@ interface HistoricalDataModalProps {
 }
 
 export function HistoricalDataModal({ isOpen, onClose, historicalData, onAddToShorthand }: HistoricalDataModalProps) {
-  if (!isOpen) return null;
+  // if (!isOpen) return null; // Removed this line
 
   const handleAddClick = (entry: TimeEntry) => {
     // Construct the shorthand line. Users can edit the "value" part later.
