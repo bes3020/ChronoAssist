@@ -5,7 +5,7 @@
 
 from helium import (
     start_chrome, click, S, Text, Point,
-    find_all, go_to, press, kill_browser, PAGE_DOWN,
+    find_all, go_to, press, kill_browser, PAGE_DOWN, get_driver,
     wait_until
 )
 from selenium.webdriver.chrome.options import Options as ChromeOptions
@@ -74,7 +74,8 @@ def scrape_timesheet_data(days_ago=30):
         
         # It's better to wait for the element to be present
         try:
-            time.sleep(10) # Increased wait time for grid loading
+            get_driver().maximize_window()
+            time.sleep(15) # Increased wait time for grid loading
             log_message("Grid loaded.")                       
             click(Point(340,490))
         except Exception as e_click:
@@ -135,6 +136,7 @@ def scrape_timesheet_data(days_ago=30):
 
                     if entry_date_obj < target_date:
                         log_message(f"Reached data older than {days_ago} days based on earliest date in current view. Stopping scroll.")
+                        scroll_count = max_scrolls + 1
                         break      
                     # Check if this entry already exists (by Date, Project, Activity, WorkItem)
                     is_duplicate = False
