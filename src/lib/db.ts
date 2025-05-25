@@ -125,8 +125,8 @@ export function getUserSettings(userId: string): UserSettingsWithDefaults {
   const result = stmt.get(userId) as UserSettings | undefined;
   if (result) {
     return {
-        historicalDataDays: result.historicalDataDays,
-        promptOverrideText: result.promptOverrideText === undefined ? null : result.promptOverrideText, // Ensure null if undefined
+        historicalDataDays: result.historicalDataDays ?? defaultUserSettings.historicalDataDays, // Ensure default if DB value is null
+        promptOverrideText: result.promptOverrideText === undefined ? null : result.promptOverrideText,
     };
   }
   return { ...defaultUserSettings }; // Return defaults if no settings found
@@ -137,6 +137,11 @@ export function saveUserSettings(userId: string, settings: Partial<UserSettings>
   const existingSettings = getUserSettings(userId);
   const newSettings = { ...existingSettings, ...settings };
 
+   // Ensure historicalDataDays is a number, even if partial settings try to set it to null/undefined
+  const historicalDaysToSave = typeof newSettings.historicalDataDays === 'number' 
+    ? newSettings.historicalDataDays 
+    : defaultUserSettings.historicalDataDays;
+
   const stmt = db.prepare(`
     INSERT INTO user_settings (user_id, historical_data_days, prompt_override_text)
     VALUES (?, ?, ?)
@@ -145,7 +150,7 @@ export function saveUserSettings(userId: string, settings: Partial<UserSettings>
     prompt_override_text = excluded.prompt_override_text,
     updated_at = CURRENT_TIMESTAMP
   `);
-  stmt.run(userId, newSettings.historicalDataDays, newSettings.promptOverrideText);
+  stmt.run(userId, historicalDaysToSave, newSettings.promptOverrideText);
 }
 
 

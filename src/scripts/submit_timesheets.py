@@ -108,12 +108,13 @@ def submit_entries(entries_data):
             #press('CR01 Sr Functional Solution Architect')
             press(entry.get('Activity', ''))
             press(TAB)
-            # press('Work item')
-            time.sleep(3)
-            press(entry.get('WorkItem', ''))
-            time.sleep(1)
-            press(ENTER)
-            time.sleep(3) # Wait for the WorkItem to be selected
+            # press('Work item')            
+            work_item = entry.get('WorkItem', '')
+            if work_item:  # Only process if WorkItem has a value
+                press(work_item)
+                time.sleep(1)
+                press(ENTER)
+                time.sleep(3)  # Wait for the WorkItem to be selected
             press(TAB)
             press(TAB)
             press(entry.get('Hours', ''))
@@ -123,7 +124,7 @@ def submit_entries(entries_data):
             press(TAB)
             #press("Test comment")
             press(entry.get('Comment', ''))
-            time.sleep(6)
+            time.sleep(3)
         
         log_message("All entries processed by script (using placeholders).")
         # If successful, return a JSON success message
