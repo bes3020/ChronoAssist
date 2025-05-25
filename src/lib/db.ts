@@ -1,4 +1,3 @@
-
 import Database from 'better-sqlite3';
 import type { TimeEntry } from '@/types/time-entry';
 import type { UserSettings, UserSettingsWithDefaults } from '@/types/settings'; // New import
@@ -51,6 +50,7 @@ export function initializeDb() {
       project TEXT NOT NULL,
       activity TEXT NOT NULL,
       work_item TEXT NOT NULL,
+      hours REAL NOT NULL,
       comment TEXT,
       entry_hash TEXT NOT NULL UNIQUE, 
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -136,7 +136,7 @@ export function saveUserSettings(userId: string, settings: Partial<UserSettings>
   const existingSettings = getUserSettings(userId);
   const newSettings = { ...existingSettings, ...settings };
 
-  // Ensure historicalDataDays is a number, even if partial settings try to set it to null/undefined
+   // Ensure historicalDataDays is a number, even if partial settings try to set it to null/undefined
   const historicalDaysToSave = typeof newSettings.historicalDataDays === 'number' 
     ? newSettings.historicalDataDays 
     : defaultUserSettings.historicalDataDays;
@@ -192,12 +192,13 @@ export function getHistoricalEntries(userId: string, limitLastMonths: number | n
       Project: row.project,
       Activity: row.activity,
       WorkItem: row.work_item, 
+      Hours: row.hours,
       Comment: row.comment,
     };
   });
 }
 
-export function addHistoricalEntries(userId: string, entries: Omit<TimeEntry, 'Hours'>[]): void {
+export function addHistoricalEntries(userId: string, entries: TimeEntry[]): void {
   const insertStmt = db.prepare(`
     INSERT INTO user_historical_entries (user_id, client_id, date, project, activity, work_item, hours, comment, entry_hash)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -214,6 +215,7 @@ export function addHistoricalEntries(userId: string, entries: Omit<TimeEntry, 'H
         entry.Project,
         entry.Activity,
         entry.WorkItem,
+        entry.Hours,
         entry.Comment,
         hash
       );
@@ -278,4 +280,3 @@ export function getLatestHistoricalEntryTimestamp(userId: string): string | null
   const result = stmt.get(userId) as { latest_timestamp: string } | undefined;
   return result?.latest_timestamp ?? null;
 }
-
