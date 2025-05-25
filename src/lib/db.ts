@@ -79,8 +79,8 @@ export function initializeDb() {
 
 initializeDb();
 
-function generateEntryHash(entry: Omit<TimeEntry, 'id' | 'clientId' | 'Hours'>): string {
-  const hashableString = `${entry.Date}-${entry.Project}-${entry.Activity}-${entry.WorkItem}-${entry.Comment}`;
+function generateEntryHash(entry: Omit<TimeEntry, 'id' | 'clientId'>): string {
+  const hashableString = `${entry.Date}-${entry.Project}-${entry.Activity}-${entry.WorkItem}-${entry.Comment}-${entry.Hours}`;
   return crypto.createHash('sha256').update(hashableString).digest('hex');
 }
 
@@ -136,11 +136,7 @@ export function saveUserSettings(userId: string, settings: Partial<UserSettings>
   const existingSettings = getUserSettings(userId);
   const newSettings = { ...existingSettings, ...settings };
 
-<<<<<<< HEAD
-   // Ensure historicalDataDays is a number, even if partial settings try to set it to null/undefined
-=======
   // Ensure historicalDataDays is a number, even if partial settings try to set it to null/undefined
->>>>>>> a1122c3ec36e81a597c60e93773ad43e0dc62ac7
   const historicalDaysToSave = typeof newSettings.historicalDataDays === 'number' 
     ? newSettings.historicalDataDays 
     : defaultUserSettings.historicalDataDays;
@@ -172,8 +168,8 @@ export function ensureUserRecordsExist(userId: string): void {
 }
 
 
-export function getHistoricalEntries(userId: string, limitLastMonths: number | null = 3): Omit<TimeEntry, 'Hours'>[] {
-  let query = 'SELECT id as sqlite_pk_id, client_id, date, project, activity, work_item, comment FROM user_historical_entries WHERE user_id = ?';
+export function getHistoricalEntries(userId: string, limitLastMonths: number | null = 3): TimeEntry[] {
+  let query = 'SELECT id as sqlite_pk_id, client_id, date, project, activity, work_item, hours, comment FROM user_historical_entries WHERE user_id = ?';
   const params: any[] = [userId];
 
   if (limitLastMonths !== null && limitLastMonths > 0) {
@@ -197,26 +193,23 @@ export function getHistoricalEntries(userId: string, limitLastMonths: number | n
       Activity: row.activity,
       WorkItem: row.work_item, 
       Comment: row.comment,
-      // Hours are not part of historical data storage/retrieval
     };
   });
 }
 
 export function addHistoricalEntries(userId: string, entries: Omit<TimeEntry, 'Hours'>[]): void {
   const insertStmt = db.prepare(`
-    INSERT INTO user_historical_entries (user_id, client_id, date, project, activity, work_item, comment, entry_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO user_historical_entries (user_id, client_id, date, project, activity, work_item, hours, comment, entry_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(entry_hash) DO NOTHING
   `);
 
   db.transaction(() => {
     for (const entry of entries) {
-      // Ensure entry has 'id' for client_id, even if it's temporary for this operation
-      const clientId = (entry as any).id || `temp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const hash = generateEntryHash(entry); 
       insertStmt.run(
         userId,
-        clientId, 
+        entry.id, 
         entry.Date,
         entry.Project,
         entry.Activity,
