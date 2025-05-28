@@ -6,4 +6,5 @@ export interface TimeEntry {
   WorkItem: string;
   Hours: number;
   Comment: string;
+  submissionError?: string; // New field for submission errors
 }

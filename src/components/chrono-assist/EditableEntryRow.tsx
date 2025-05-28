@@ -1,3 +1,4 @@
+
 'use client';
 
 import type { ChangeEvent } from 'react';
@@ -16,20 +17,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Trash2 } from 'lucide-react';
+import { Trash2, AlertCircle } from 'lucide-react'; // Added AlertCircle for error icon
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // For error tooltip
 
 interface EditableEntryRowProps {
   entry: TimeEntry;
   historicalData: TimeEntry[];
-  uniqueProjects: string[]; // Assumed to be pre-filtered for non-empty strings by the parent
+  uniqueProjects: string[]; 
   onChange: (id: string, field: keyof TimeEntry, value: string | number) => void;
   onRemove: (id: string) => void;
 }
 
 export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChange, onRemove }: EditableEntryRowProps) {
   const projectOptions = useMemo(() => {
-    const options = [...uniqueProjects]; // uniqueProjects is already filtered for non-empty strings
-    // If current entry.Project is non-empty and not in the filtered options, add it
+    const options = [...uniqueProjects]; 
     if (entry.Project && entry.Project !== '' && !options.includes(entry.Project)) {
       options.push(entry.Project);
       options.sort();
@@ -39,13 +40,11 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
 
   const activityOptions = useMemo(() => {
     if (!entry.Project) return [];
-    // Get activities for the current project, filter out empty strings for SelectItem values
     const filteredActivities = historicalData
       .filter(item => item.Project === entry.Project)
       .map(item => item.Activity)
-      .filter(activity => activity !== ''); // Ensure options for SelectItem are non-empty
+      .filter(activity => activity !== ''); 
     const uniqueActivities = Array.from(new Set(filteredActivities));
-    // Add current non-empty Activity if it's not in the list
     if (entry.Activity && entry.Activity !== '' && !uniqueActivities.includes(entry.Activity)) {
       uniqueActivities.push(entry.Activity);
     }
@@ -54,13 +53,11 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
 
   const workItemOptions = useMemo(() => {
     if (!entry.Project || !entry.Activity) return [];
-    // Get work items for the current project/activity, filter out empty strings for SelectItem values
     const filteredWorkItems = historicalData
       .filter(item => item.Project === entry.Project && item.Activity === entry.Activity)
       .map(item => item.WorkItem)
-      .filter(workItem => workItem !== ''); // Ensure options for SelectItem are non-empty
+      .filter(workItem => workItem !== ''); 
     const uniqueWorkItems = Array.from(new Set(filteredWorkItems));
-    // Add current non-empty WorkItem if it's not in the list
     if (entry.WorkItem && entry.WorkItem !== '' && !uniqueWorkItems.includes(entry.WorkItem)) {
       uniqueWorkItems.push(entry.WorkItem);
     }
@@ -68,7 +65,7 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
   }, [historicalData, entry.Project, entry.Activity, entry.WorkItem]);
 
   return (
-    <TableRow>
+    <TableRow className={entry.submissionError ? 'bg-destructive/10' : ''}>
       <TableCell>
         <Input
           type="date"
@@ -79,7 +76,7 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
       </TableCell>
       <TableCell>
         <Select
-          value={entry.Project || ''} // If entry.Project is '', SelectValue will show placeholder
+          value={entry.Project || ''} 
           onValueChange={(value) => onChange(entry.id, 'Project', value)}
         >
           <SelectTrigger className="text-sm">
@@ -87,8 +84,8 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
           </SelectTrigger>
           <SelectContent>
             {projectOptions.map((option) => (
-              <SelectItem key={option} value={option}> {/* option is guaranteed non-empty */}
-                {option} {/* Display text can be the option itself */}
+              <SelectItem key={option} value={option}> 
+                {option} 
               </SelectItem>
             ))}
           </SelectContent>
@@ -96,16 +93,16 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
       </TableCell>
       <TableCell>
         <Select
-          value={entry.Activity || ''} // If entry.Activity is '', SelectValue will show placeholder
+          value={entry.Activity || ''} 
           onValueChange={(value) => onChange(entry.id, 'Activity', value)}
-          disabled={!entry.Project} // Activity selection enabled if Project is selected
+          disabled={!entry.Project} 
         >
           <SelectTrigger className="text-sm">
             <SelectValue placeholder="Select activity" />
           </SelectTrigger>
           <SelectContent>
             {activityOptions.map((option) => (
-              <SelectItem key={option} value={option}> {/* option is guaranteed non-empty */}
+              <SelectItem key={option} value={option}> 
                 {option}
               </SelectItem>
             ))}
@@ -114,16 +111,16 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
       </TableCell>
       <TableCell>
         <Select
-          value={entry.WorkItem || ''} // If entry.WorkItem is '', SelectValue will show placeholder
+          value={entry.WorkItem || ''} 
           onValueChange={(value) => onChange(entry.id, 'WorkItem', value)}
-          disabled={!entry.Project || !entry.Activity} // WorkItem selection enabled if Project and Activity are selected
+          disabled={!entry.Project || !entry.Activity} 
         >
           <SelectTrigger className="text-sm">
             <SelectValue placeholder="Select work item" />
           </SelectTrigger>
           <SelectContent>
             {workItemOptions.map((option) => (
-              <SelectItem key={option} value={option}> {/* option is guaranteed non-empty */}
+              <SelectItem key={option} value={option}> 
                 {option}
               </SelectItem>
             ))}
@@ -157,6 +154,22 @@ export function EditableEntryRow({ entry, historicalData, uniqueProjects, onChan
         >
           <Trash2 className="w-4 h-4" />
         </Button>
+      </TableCell>
+      <TableCell>
+        {entry.submissionError && (
+          <TooltipProvider>
+            <Tooltip delayDuration={100}>
+              <TooltipTrigger asChild>
+                <span className="flex items-center justify-center text-destructive">
+                  <AlertCircle className="w-5 h-5" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="bg-destructive text-destructive-foreground max-w-xs">
+                <p>{entry.submissionError}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </TableCell>
     </TableRow>
   );

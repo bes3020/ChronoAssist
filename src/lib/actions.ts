@@ -4,8 +4,8 @@ import type { InitialTimeEntryInput, InitialTimeEntryOutput } from '@/ai/flows/i
 import { initialTimeEntry } from '@/ai/flows/initial-time-entry-prompt';
 import { revalidatePath } from 'next/cache';
 import type { TimeEntry } from '@/types/time-entry';
-import type { UserSettings, UserSettingsWithDefaults } from '@/types/settings'; // New import
-import { defaultUserSettings } from '@/types/settings'; // New import
+import type { UserSettings, UserSettingsWithDefaults } from '@/types/settings'; 
+import { defaultUserSettings } from '@/types/settings'; 
 import { parseISO, format } from 'date-fns';
 import { spawnSync } from 'child_process';
 import path from 'path';
@@ -27,8 +27,8 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
   }
 
   try {
-    const historicalEntriesFromDb = db.getHistoricalEntries(userId, 3); 
-    const userSettings = db.getUserSettings(userId); // Get user settings
+    const historicalEntriesFromDb = db.getHistoricalEntries(userId); 
+    const userSettings = db.getUserSettings(userId); 
 
     const historicalDataForAI = historicalEntriesFromDb.map(entry => ({ 
       Date: entry.Date,
@@ -36,14 +36,13 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
       Activity: entry.Activity,
       WorkItem: entry.WorkItem,
       Comment: entry.Comment,
-      // Hours are not passed to AI
     }));
 
     const aiInput: InitialTimeEntryInput = {
       notes,
       historicalData: historicalDataForAI, 
       shorthandNotes: shorthandNotes?.trim() ? shorthandNotes : undefined,
-      promptOverride: userSettings.promptOverrideText || undefined, // Pass prompt override
+      promptOverride: userSettings.promptOverrideText || undefined, 
     };
     const aiOutput: InitialTimeEntryOutput = await initialTimeEntry(aiInput);
     console.log("Raw AI Output (from getProposedEntriesAction):", JSON.stringify(aiOutput, null, 2));
@@ -52,6 +51,7 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
       ...entry,
       id: generateProposedEntryId(), 
       Hours: Number(entry.Hours) || 0, 
+      submissionError: undefined, // Ensure new AI entries don't have old errors
     }));
     
     console.log("Processed AI Entries by getProposedEntriesAction (no DB save here):", JSON.stringify(processedEntries, null, 2));
@@ -64,26 +64,33 @@ export async function getProposedEntriesAction(notes: string, shorthandNotes?: s
   }
 }
 
-export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ success: boolean; message: string }> {
-  const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); 
+interface PythonSubmissionResponse {
+  overallSuccess: boolean;
+  message: string;
+  submittedEntryClientIds: string[];
+  failedEntries: Array<{ client_id: string; error: string }>;
+}
 
-  if (!entries || entries.length === 0) {
-    return { success: false, message: "No entries to submit." };
+export async function submitTimeEntriesAction(entriesToSubmit: TimeEntry[]): Promise<{ success: boolean; message: string; hasErrors: boolean; updatedProposals?: TimeEntry[] }> {
+  const userId = await getAnonymousUserId();
+  db.ensureUserRecordsExist(userId);
+
+  if (!entriesToSubmit || entriesToSubmit.length === 0) {
+    return { success: false, message: "No entries to submit.", hasErrors: false };
   }
 
   console.log("Attempting to submit time entries using Python/Helium script...");
   const pythonScriptPath = path.join(process.cwd(), 'src', 'scripts', 'submit_timesheets.py');
   
-  const entriesForScript = entries.map(({ id, ...rest }) => rest);
-  const entriesJsonString = JSON.stringify(entriesForScript);
+  // Pass the full TimeEntry objects, as the script expects 'id' to be the client_id
+  const entriesJsonString = JSON.stringify(entriesToSubmit);
 
   try {
     const pythonProcess = spawnSync('python', [pythonScriptPath, entriesJsonString], { encoding: 'utf8', timeout: 300000 });
 
     if (pythonProcess.error) {
       console.error('Failed to start Python submission script:', pythonProcess.error);
-      return { success: false, message: `Failed to start submission script: ${pythonProcess.error.message}` };
+      return { success: false, message: `Failed to start submission script: ${pythonProcess.error.message}`, hasErrors: true };
     }
 
     const stderrOutput = pythonProcess.stderr?.toString().trim();
@@ -94,41 +101,71 @@ export async function submitTimeEntriesAction(entries: TimeEntry[]): Promise<{ s
     const stdoutOutput = pythonProcess.stdout?.toString().trim();
     if (!stdoutOutput) {
         console.error('Python submission script produced no STDOUT output.');
-        return { success: false, message: 'Submission script produced no output. Check server logs for Python script STDERR.' };
+        return { success: false, message: 'Submission script produced no output. Check server logs for Python script STDERR.', hasErrors: true };
     }
     
-    let scriptResult;
+    let scriptResult: PythonSubmissionResponse;
     try {
         scriptResult = JSON.parse(stdoutOutput);
     } catch (e) {
         console.error('Failed to parse JSON response from Python submission script:', e);
         console.error('Python script STDOUT:', stdoutOutput);
-        return { success: false, message: 'Invalid response from submission script. Check server logs.'};
+        return { success: false, message: 'Invalid response from submission script. Check server logs.', hasErrors: true};
     }
 
-    if (pythonProcess.status !== 0 || !scriptResult.success) {
-      console.error(`Python submission script exited with status ${pythonProcess.status} or reported failure.`);
-      return { success: false, message: scriptResult.message || "Time submission script failed. Check server logs for Python script details." };
+    // Process results
+    const currentProposedEntries = await db.getProposedEntries(userId);
+    let remainingProposedEntries: TimeEntry[] = [];
+    const successfullySubmittedEntriesForHistory: TimeEntry[] = [];
+
+    // Populate error messages for failed entries
+    const failedClientIds = new Set(scriptResult.failedEntries.map(f => f.client_id));
+    
+    for (const proposed of currentProposedEntries) {
+        const failureDetail = scriptResult.failedEntries.find(f => f.client_id === proposed.id);
+        if (failureDetail) {
+            remainingProposedEntries.push({ ...proposed, submissionError: failureDetail.error });
+        } else if (scriptResult.submittedEntryClientIds.includes(proposed.id)) {
+            // This entry was successfully submitted
+            successfullySubmittedEntriesForHistory.push({ ...proposed, submissionError: undefined });
+        } else {
+            // This entry was not part of the submission batch (e.g., user added more after AI)
+            // or something went wrong with tracking. Keep it as is for now.
+             remainingProposedEntries.push({ ...proposed, submissionError: undefined });
+        }
     }
     
-    db.addHistoricalEntries(userId, entries.map(e => ({...e, id: e.id || generateProposedEntryId() })));
-    
-    console.log("Python submission script executed successfully:", scriptResult.message);
+    // If an entry was in entriesToSubmit but not found in currentProposed (shouldn't happen if UI is in sync)
+    // and it failed, we might need to add it back to remainingProposed with an error.
+    // For simplicity, we assume entriesToSubmit is a subset of currentProposedEntries.
+
+    if (successfullySubmittedEntriesForHistory.length > 0) {
+      db.addHistoricalEntries(userId, successfullySubmittedEntriesForHistory);
+    }
+
+    db.saveProposedEntries(userId, remainingProposedEntries); // Save remaining/failed entries
+
     revalidatePath('/'); 
-    return { success: true, message: scriptResult.message || "Time entries submitted successfully and saved to local history." };
+    return { 
+        success: scriptResult.overallSuccess, 
+        message: scriptResult.message || "Time submission script process completed.",
+        hasErrors: scriptResult.failedEntries.length > 0,
+        updatedProposals: remainingProposedEntries 
+    };
 
   } catch (error) {
     console.error("Error submitting time entries via Python script:", error);
-    return { success: false, message: `Server error during time submission: ${(error as Error).message}` };
+    return { success: false, message: `Server error during time submission: ${(error as Error).message}`, hasErrors: true };
   }
 }
+
 
 export async function getHistoricalDataAction(): Promise<{ success: boolean; message: string; data: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId);
   try {
     console.log(`Fetching historical data from DB for user ${userId}...`);
-    const data = db.getHistoricalEntries(userId, 3); // Still uses 3 months for direct DB view
+    const data = db.getHistoricalEntries(userId); 
     return { success: true, message: "Historical data fetched from local storage.", data };
   } catch (error) {
     console.error("Error fetching historical data from DB:", error);
@@ -139,13 +176,12 @@ export async function getHistoricalDataAction(): Promise<{ success: boolean; mes
 export async function refreshHistoricalDataFromScriptAction(): Promise<{ success: boolean; message: string, data: TimeEntry[] }> {
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId); 
-  const userSettings = await db.getUserSettings(userId); // Get user settings
+  const userSettings = await db.getUserSettings(userId); 
 
   console.log(`Attempting to refresh historical data from script for user ${userId} with ${userSettings.historicalDataDays} days setting...`);
   const pythonScriptPath = path.join(process.cwd(), 'src', 'scripts', 'scrape_timesheets.py');
   
   try {
-    // Pass historicalDataDays setting to the script
     const pythonProcess = spawnSync('python', [pythonScriptPath, userSettings.historicalDataDays.toString()], { encoding : 'utf8', timeout: 300000 });
 
     if (pythonProcess.error) {
@@ -174,7 +210,7 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
         return { success: true, message: `Historical data script ran but returned no new data. ${existingData.length > 0 ? 'Showing previously loaded data.' : 'No historical data available.'}`, data: existingData };
     }
 
-    type ScrapedEntryMaybeNoHours = Omit<TimeEntry, 'id' | 'Hours'> & { Hours?: number | string }; // Allow string for hours from script
+    type ScrapedEntryMaybeNoHours = Omit<TimeEntry, 'id' | 'Hours'> & { Hours?: number | string }; 
     let scrapedEntries: ScrapedEntryMaybeNoHours[];
     try {
         scrapedEntries = JSON.parse(rawData);
@@ -189,12 +225,16 @@ export async function refreshHistoricalDataFromScriptAction(): Promise<{ success
         ...entry,
         id: `scraped_${Date.now()}_${index}`, 
         Date: entry.Date ? format(parseISO(entry.Date), 'yyyy-MM-dd') : new Date().toISOString().split('T')[0],
-        Hours: 0, // Hours from scrape are not used for storage
+        Hours: 0, 
+        Comment: entry.Comment || '',
+        Project: entry.Project || '',
+        Activity: entry.Activity || '',
+        WorkItem: entry.WorkItem || '',
     }));
 
     db.addHistoricalEntries(userId, processedScrapedData); 
     
-    const allHistoricalData = db.getHistoricalEntries(userId, null); // Get all data after refresh
+    const allHistoricalData = db.getHistoricalEntries(userId, null); 
 
     if (allHistoricalData.length === 0) {
         return { success: true, message: "Successfully fetched data, but no time entries were found.", data: [] };
@@ -258,7 +298,8 @@ export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promi
   const userId = await getAnonymousUserId();
   db.ensureUserRecordsExist(userId); 
   try {
-    db.saveProposedEntries(userId, entries);
+    const entriesWithClearedErrors = entries.map(e => ({...e, submissionError: undefined}));
+    db.saveProposedEntries(userId, entriesWithClearedErrors);
     revalidatePath('/');
     if (entries.length === 0) {
         return { success: true, message: "Proposed entries cleared." };
@@ -273,13 +314,13 @@ export async function saveUserProposedEntriesAction(entries: TimeEntry[]): Promi
 // User Settings Actions
 export async function getUserSettingsAction(): Promise<UserSettingsWithDefaults> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensures settings record exists with defaults if not present
+  db.ensureUserRecordsExist(userId); 
   return db.getUserSettings(userId);
 }
 
 export async function saveUserSettingsAction(settings: Partial<UserSettings>): Promise<{ success: boolean; message: string }> {
   const userId = await getAnonymousUserId();
-  db.ensureUserRecordsExist(userId); // Ensure parent records are there
+  db.ensureUserRecordsExist(userId); 
   try {
     db.saveUserSettings(userId, settings);
     revalidatePath('/');

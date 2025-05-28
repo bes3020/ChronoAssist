@@ -3,8 +3,8 @@
 
 import { useState, useTransition, useEffect, useCallback } from 'react';
 import type { TimeEntry } from '@/types/time-entry';
-import type { UserSettings, UserSettingsWithDefaults } from '@/types/settings'; // New import
-import { defaultUserSettings } from '@/types/settings'; // New import
+import type { UserSettings, UserSettingsWithDefaults } from '@/types/settings'; 
+import { defaultUserSettings } from '@/types/settings'; 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
@@ -13,7 +13,7 @@ import { PreviewEntriesModal } from './PreviewEntriesModal';
 import { HistoricalDataModal } from './HistoricalDataModal';
 import { ShorthandModal } from './ShorthandModal';
 import { GenerateOrAddModal } from './GenerateOrAddModal';
-import { SettingsModal } from './SettingsModal'; // New import
+import { SettingsModal } from './SettingsModal'; 
 import { 
   getProposedEntriesAction, 
   submitTimeEntriesAction, 
@@ -25,11 +25,11 @@ import {
   saveUserMainNotesAction,
   getUserProposedEntriesAction,
   saveUserProposedEntriesAction,
-  getUserSettingsAction, // New import
-  saveUserSettingsAction // New import
+  getUserSettingsAction, 
+  saveUserSettingsAction 
 } from '@/lib/actions';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Lightbulb, History, Send, ChevronDown, Eye, RefreshCw, NotebookPen, Edit3, Brain, ClipboardList, Cog } from 'lucide-react'; // Added Cog
+import { Lightbulb, History, Send, ChevronDown, Eye, RefreshCw, NotebookPen, Edit3, Brain, ClipboardList, Cog } from 'lucide-react'; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,7 +44,7 @@ const generateProposedEntryId = () => `proposed_${Date.now()}_${uuidv4().substri
 export function TimeEntryForm() {
   const [notes, setNotes] = useState('');
   const [shorthandNotes, setShorthandNotes] = useState('');
-  const [userSettings, setUserSettings] = useState<UserSettingsWithDefaults>(defaultUserSettings); // New state
+  const [userSettings, setUserSettings] = useState<UserSettingsWithDefaults>(defaultUserSettings); 
   const [proposedEntries, setProposedEntries] = useState<TimeEntry[]>([]);
   const [localHistoricalData, setLocalHistoricalData] = useState<TimeEntry[]>([]);
   
@@ -52,7 +52,7 @@ export function TimeEntryForm() {
   const [isHistoricalModalOpen, setIsHistoricalModalOpen] = useState(false);
   const [isShorthandModalOpen, setIsShorthandModalOpen] = useState(false);
   const [isGenerateOrAddModalOpen, setIsGenerateOrAddModalOpen] = useState(false);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false); // New state
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false); 
 
   const [isProcessing, startTransitionProcessing] = useTransition(); 
   const [isPendingHistoricalRefresh, startTransitionHistoricalRefresh] = useTransition();
@@ -80,11 +80,11 @@ export function TimeEntryForm() {
           getUserShorthandAction(),
           getHistoricalDataAction(),
           getUserProposedEntriesAction(),
-          getUserSettingsAction() // Load settings
+          getUserSettingsAction() 
         ]);
         setNotes(loadedNotes);
         setShorthandNotes(loadedShorthand);
-        setUserSettings(loadedSettings); // Set settings state
+        setUserSettings(loadedSettings); 
         
         if (dbHistoricalResult.success) {
           setLocalHistoricalData(dbHistoricalResult.data);
@@ -140,7 +140,6 @@ export function TimeEntryForm() {
     setIsGenerateOrAddModalOpen(false);
     startTransitionProcessing(async () => {
       try {
-        // shorthandNotes and promptOverride (from userSettings) are now passed internally by getProposedEntriesAction
         const aiResult = await getProposedEntriesAction(notes, shorthandNotes);
         let finalEntries: TimeEntry[] = [];
 
@@ -222,7 +221,6 @@ export function TimeEntryForm() {
             });
             return;
         }
-        setProposedEntries(latestProposedEntriesFromDb); 
         performSubmit(latestProposedEntriesFromDb);
     });
   };
@@ -230,15 +228,25 @@ export function TimeEntryForm() {
   const performSubmit = (entriesToSubmit: TimeEntry[]) => {
       (async () => {
         try {
+          // Call the action with the entries to be submitted
           const result = await submitTimeEntriesAction(entriesToSubmit);
+          
           toast({
-            title: result.success ? "Success" : "Error",
+            title: result.success ? "Submission Processed" : "Submission Error",
             description: result.message,
-            variant: result.success ? "default" : "destructive",
+            variant: result.success ? (result.hasErrors ? "default" : "default") : "destructive",
           });
-          if (result.success) {
-            setProposedEntries([]); 
-            await saveUserProposedEntriesAction([]); 
+
+          // After submission, refresh the proposed entries state from the DB
+          // as submitTimeEntriesAction might have updated them with error messages
+          // or cleared them.
+          const updatedProposalsFromDb = await getUserProposedEntriesAction();
+          setProposedEntries(updatedProposalsFromDb);
+
+          if (result.hasErrors) {
+            setIsPreviewModalOpen(true); // Re-open modal to show errors
+          } else if (result.success) {
+            // All succeeded, proposed entries should be empty now from DB
             handleRefreshHistoricalDataFromScript(); 
           }
         } catch (error) {
@@ -247,6 +255,9 @@ export function TimeEntryForm() {
             description: (error as Error).message || "An unexpected error occurred.",
             variant: "destructive",
           });
+           // Even on catch, try to refresh proposed entries to reflect any partial DB changes
+           const proposalsAfterError = await getUserProposedEntriesAction();
+           setProposedEntries(proposalsAfterError);
         }
       })();
   };
@@ -254,7 +265,6 @@ export function TimeEntryForm() {
   const handleRefreshHistoricalDataFromScript = useCallback(() => {
     startTransitionHistoricalRefresh(async () => {
       try {
-        // refreshHistoricalDataFromScriptAction will use settings from DB
         const scriptResult = await refreshHistoricalDataFromScriptAction();
         if (scriptResult.success) {
           setLocalHistoricalData(scriptResult.data);
@@ -287,13 +297,15 @@ export function TimeEntryForm() {
         });
       }
     });
-  }, [startTransitionHistoricalRefresh, toast]); // userSettings is not needed here as action reads it
+  }, [startTransitionHistoricalRefresh, toast]); 
 
   const handleSaveModalEntries = (updatedEntries: TimeEntry[]) => {
     startTransitionProcessing(async () => { 
         try {
-            await saveUserProposedEntriesAction(updatedEntries);
-            setProposedEntries(updatedEntries);
+            // When saving from modal, clear any previous submission errors
+            const entriesToSave = updatedEntries.map(e => ({...e, submissionError: undefined}));
+            await saveUserProposedEntriesAction(entriesToSave);
+            setProposedEntries(entriesToSave);
             toast({
                 title: "Entries Updated",
                 description: "Your changes to the time entries have been saved.",
@@ -332,7 +344,7 @@ export function TimeEntryForm() {
       try {
         const result = await saveUserSettingsAction(newSettings);
         if (result.success) {
-          setUserSettings(prev => ({...prev, ...newSettings})); // Update local state
+          setUserSettings(prev => ({...prev, ...newSettings})); 
           toast({
             title: "Settings Updated",
             description: result.message,

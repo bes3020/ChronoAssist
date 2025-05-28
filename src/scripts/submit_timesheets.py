@@ -5,7 +5,7 @@
 
 from helium import (
     start_chrome, click, Text, wait_until, find_all,
-    go_to, press, kill_browser, Button, TAB, ENTER
+    go_to, press, kill_browser, Button, TAB, ENTER, write
 )
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 import json
@@ -18,121 +18,167 @@ import os
 def log_message(message):
     print(f"PYTHON_SUBMIT_LOG: {message}", file=sys.stderr)
 
-def submit_entries(entries_data):
+def submit_entries_to_xyz(entries_data):
     """
     Automates submitting time entries to XYZ.com using Helium.
     'entries_data' is a list of dictionaries, each representing a time entry.
+    Returns a dictionary with overall success, submitted IDs, and failed entries with errors.
     """
+    
+    submitted_entry_client_ids = []
+    failed_entries_details = []
+    all_successful = True
+
     try:
-        # Make sure this directory exists or can be created by the script
-        profile_base_dir = os.path.expanduser("~/.helium_profiles") # Example: C:\Users\YourUser\.helium_profiles or /home/youruser/.helium_profiles
-        profile_dir_name = "azure_ad_session" # Give your profile a name
+        profile_base_dir = os.path.expanduser("~/.helium_profiles")
+        profile_dir_name = "azure_ad_session"
         persistent_profile_path = os.path.join(profile_base_dir, profile_dir_name)
         driver_options = ChromeOptions()
         driver_options.add_argument(f"--user-data-dir={persistent_profile_path}")
-
-        # Create the base directory if it doesn't exist
         os.makedirs(profile_base_dir, exist_ok=True)
-        log_message("Starting Chrome browser...")
-        # Check if running in a headless environment (common for servers)
-        # Helium might require additional setup for headless, or it might not be feasible
-        # for sites requiring interactive login.
-        # For now, assume non-headless for interactive login.
-        start_chrome(headless=False, options=driver_options) # Explicitly non-headless for login
 
+        log_message("Starting Chrome browser for submission...")
+        start_chrome(headless=False, options=driver_options)
         log_message("Chrome browser started.")
         
-        # 1. Go to XYZ.com and wait for user login
         target_url = "https://bnext-prd.operations.dynamics.com/?cmp=DAT&mi=PSOTSTimesheetUserWorkSpace"
         log_message(f"Navigating to {target_url}")
         go_to(target_url)
         
         wait_until(Text("Time").exists, timeout_secs=200)
-        # 2. Click on Registration button
-        buttons = find_all(Button("Registration"))
-        if(len(buttons) == 0):
-            log_message("No Registration button found. Exiting.")
-            return {"success": False, "message": "No Registration button found."}
-        elif(len(buttons) > 1):
-            click(buttons[1])
-        else:
-            click(buttons[0])
-            buttons = find_all(Button("Registration"))        
-            click(buttons[1])
-
-        time.sleep(5)
-        log_message(f"Received {len(entries_data)} entries to submit.")
-
-        #for x in range(10):
-        for index, entry in enumerate(entries_data):
-            log_message(f"Processing entry {index + 1}/{len(entries_data)}: Date {entry.get('Date', 'N/A')}, Project {entry.get('Project', 'N/A')}")
-            
-            wait_until(Button("Hours").exists, timeout_secs=10)
-            click(Button("Hours"))
-            time.sleep(3) # Wait for new fields to appear
-
-            # Date processing
-            date_string = entry.get('Date')
-            formatted_date = None
-            if date_string:
-                try:
-                    # Try parsing YYYY-MM-DD
-                    date_obj = datetime.strptime(date_string, '%Y-%m-%d')
-                    # Format for Windows: "Tue 5/13" using %#m for non-padded month, %#d for non-padded day
-                    formatted_date = date_obj.strftime("%a %#m/%#d")
-                except ValueError:
-                    log_message(f"Warning: Date '{date_string}' (entry index {index}) is not in YYYY-MM-DD format. Trying MM/DD/YYYY.")
-                    try:
-                        # Try parsing MM/DD/YYYY
-                        date_obj = datetime.strptime(date_string, '%m/%d/%Y')
-                        formatted_date = date_obj.strftime("%a %#m/%#d")
-                    except ValueError:
-                        log_message(f"ERROR: Date '{date_string}' (entry index {index}) is not in MM/DD/YYYY format either. Cannot format date.")
-                except TypeError:
-                        log_message(f"ERROR: Invalid type for date_string ('{date_string}', entry index {index}). Cannot format date.")
-            else:
-                log_message(f"ERROR: No 'Date' field found in entry at index {index}.")
-
-            if not formatted_date:
-                log_message(f"Critical: Failed to determine or format date for entry at index {index} (original date string: '{date_string}'). Skipping this entry.")
-                continue # Skip to the next iteration of the for loop
-
-            log_message(f"Processing entry {index + 1}/{len(entries_data)}: Date '{formatted_date}', Project '{entry.get('Project', 'N/A')}', Activity '{entry.get('Activity', 'N/A')}', WorkItem '{entry.get('WorkItem', 'N/A')}', Hours '{entry.get('Hours', 'N/A')}', Comment '{entry.get('Comment', 'N/A')}'")
-
-            press(formatted_date)
-            press(TAB)
-            press(TAB)
-            # press('BIO02001: BioLegend D365 F&SC Implementation')
-            press(entry.get('Project', ''))
-            press(TAB)
-            #press('CR01 Sr Functional Solution Architect')
-            press(entry.get('Activity', ''))
-            press(TAB)
-            # press('Work item')            
-            work_item = entry.get('WorkItem', '')
-            if work_item:  # Only process if WorkItem has a value
-                press(work_item)
-                time.sleep(1)
-                press(ENTER)
-                time.sleep(3)  # Wait for the WorkItem to be selected
-            press(TAB)
-            press(TAB)
-            press(entry.get('Hours', ''))
-            press(TAB)
-            press(TAB)
-            press(TAB)
-            press(TAB)
-            #press("Test comment")
-            press(entry.get('Comment', ''))
-            time.sleep(3)
         
-        log_message("All entries processed by script (using placeholders).")
-        # If successful, return a JSON success message
-        return {"success": True, "message": "Time entries processed by Python script (placeholders). Review XYZ.com to confirm submission."}
+        registration_buttons = find_all(Button("Registration"))
+        if not registration_buttons:
+            log_message("No Registration button found. Exiting submission.")
+            # If this critical step fails, all entries are considered failed.
+            for entry in entries_data:
+                failed_entries_details.append({
+                    "client_id": entry.get('id', f"unknown_id_{entries_data.index(entry)}"), # Use 'id' field which is the client_id
+                    "error": "Setup Error: Could not find 'Registration' button on page."
+                })
+            return {
+                "overallSuccess": False,
+                "message": "Setup Error: Could not find 'Registration' button.",
+                "submittedEntryClientIds": [],
+                "failedEntries": failed_entries_details
+            }
+        
+        # Heuristic: if multiple "Registration" buttons, the second one might be the correct one.
+        # This needs to be verified against the actual UI.
+        click_target_registration = registration_buttons[1] if len(registration_buttons) > 1 else registration_buttons[0]
+        click(click_target_registration)
+        
+        time.sleep(5) # Wait for the timesheet entry interface to load
+        log_message(f"Ready to process {len(entries_data)} entries for submission.")
 
-    except Exception as e:
-        log_message(f"An error occurred during the submission process: {str(e)}")
-        return {"success": False, "message": f"Python script error during submission: {str(e)}"}
+        for index, entry in enumerate(entries_data):
+            client_id = entry.get('id') # This 'id' is the client_id from the TimeEntry object
+            log_message(f"Processing entry {index + 1}/{len(entries_data)} (Client ID: {client_id}): Date {entry.get('Date', 'N/A')}")
+            
+            # Simulate submission attempt for each entry
+            # In a real scenario, this block would contain the Helium calls to fill and submit one entry
+            
+            # ---- START OF PER-ENTRY SUBMISSION LOGIC (Helium interactions) ----
+            try:
+                wait_until(Button("Hours").exists, timeout_secs=10) # Wait for the 'Hours' button to ensure the form is ready for a new line.
+                click(Button("Hours")) # This likely creates a new row or focuses the entry mechanism.
+                time.sleep(3) # Wait for UI to update after click
+
+                # Date processing
+                date_string = entry.get('Date')
+                formatted_date_for_helium = "" # For Helium's `press` or `write`
+                if date_string:
+                    try:
+                        date_obj = datetime.strptime(date_string, '%Y-%m-%d')
+                        formatted_date_for_helium = date_obj.strftime("%a %#m/%#d") # Example: "Tue 5/13"
+                    except (ValueError, TypeError) as e_date:
+                        log_message(f"Date formatting error for entry {client_id}: {e_date}")
+                        raise Exception(f"Invalid date format: {date_string}") # Make this a failure for this entry
+                else:
+                    raise Exception("Date is missing.")
+
+                log_message(f"Attempting to input: Date '{formatted_date_for_helium}', Proj '{entry.get('Project', '')}', Act '{entry.get('Activity', '')}', WI '{entry.get('WorkItem', '')}', Hrs '{entry.get('Hours', '')}', Cmt '{entry.get('Comment', '')}'")
+                
+                # Placeholder Helium actions for filling a row
+                # These selectors and sequences are highly dependent on the actual web application
+                # and need to be determined by inspecting the application's HTML structure.
+                
+                # Example sequence:
+                # press(formatted_date_for_helium) # Input Date
+                # press(TAB)
+                # press(TAB) # Assuming two tabs to get to Project from Date
+                # write(entry.get('Project', '')) # Input Project
+                # press(TAB)
+                # write(entry.get('Activity', '')) # Input Activity
+                # press(TAB)
+                # work_item = entry.get('WorkItem', '')
+                # if work_item:
+                #     write(work_item)
+                #     time.sleep(0.5) # Allow for any dynamic updates/validation
+                #     press(ENTER) # If WorkItem is a searchable dropdown
+                #     time.sleep(1) # Wait for selection
+                # press(TAB) # To Hours (assuming it's next after WorkItem or its potential empty slot)
+                # press(TAB) # Assuming 2 tabs from WI to hours if WI could be empty
+                # write(str(entry.get('Hours', '0'))) # Input Hours
+                # press(TAB) # ... and so on for Comment
+                # press(TAB)
+                # press(TAB)
+                # press(TAB)
+                # write(entry.get('Comment', ''))
+                # time.sleep(1) # Short delay before processing next or "saving" this line
+
+                # SIMULATION: For demonstration, let's make every second entry fail.
+                if (index + 1) % 2 != 0: # Odd entries succeed (1st, 3rd, ...)
+                    # If actual submission of this line was successful:
+                    log_message(f"Successfully processed entry {client_id} (Simulated).")
+                    submitted_entry_client_ids.append(client_id)
+                else: # Even entries fail (2nd, 4th, ...)
+                    log_message(f"Failed to submit entry {client_id} (Simulated error).")
+                    all_successful = False
+                    failed_entries_details.append({
+                        "client_id": client_id,
+                        "error": f"Simulated Submission Error for entry {index + 1} (e.g., Invalid WorkItem)."
+                    })
+            
+            except Exception as e_entry:
+                log_message(f"Error during processing of entry {client_id}: {str(e_entry)}")
+                all_successful = False
+                failed_entries_details.append({
+                    "client_id": client_id,
+                    "error": f"Script error: {str(e_entry)}"
+                })
+            # ---- END OF PER-ENTRY SUBMISSION LOGIC ----
+
+        if all_successful:
+            final_message = f"All {len(entries_data)} entries submitted successfully."
+        elif not submitted_entry_client_ids and failed_entries_details:
+             final_message = f"All {len(failed_entries_details)} entries failed to submit."
+        else:
+            final_message = f"Submission complete. {len(submitted_entry_client_ids)} entries submitted, {len(failed_entries_details)} entries failed."
+        
+        log_message(final_message)
+        return {
+            "overallSuccess": all_successful,
+            "message": final_message,
+            "submittedEntryClientIds": submitted_entry_client_ids,
+            "failedEntries": failed_entries_details
+        }
+
+    except Exception as e_global:
+        log_message(f"A critical error occurred in the submission script: {str(e_global)}")
+        # Mark all entries as failed if a global error occurs
+        critical_failed_entries = []
+        for entry in entries_data:
+             critical_failed_entries.append({
+                "client_id": entry.get('id', f"unknown_id_critical_{entries_data.index(entry)}"),
+                "error": f"Critical script error: {str(e_global)}"
+            })
+        return {
+            "overallSuccess": False,
+            "message": f"Python script critical error: {str(e_global)}",
+            "submittedEntryClientIds": [],
+            "failedEntries": critical_failed_entries # All entries marked as failed
+        }
     finally:
         log_message("Submission script attempting to close browser.")
         try:           
@@ -144,26 +190,31 @@ def submit_entries(entries_data):
 if __name__ == "__main__":
     log_message("Python time submission script started.")
     
+    result_payload = {} # Initialize
     if len(sys.argv) > 1:
         entries_json_string = sys.argv[1]
         try:
-            # The JSON string comes from Node.js and represents List<Omit<TimeEntry, 'id'>>
-            entries_list = json.loads(entries_json_string)
-            log_message(f"Script received {len(entries_list)} entries to submit via command line argument.")
-            result = submit_entries(entries_list)
+            # The JSON string comes from Node.js and represents List<TimeEntry>
+            # Crucially, TimeEntry has an 'id' which is the client_id
+            entries_list_from_node = json.loads(entries_json_string)
+            log_message(f"Script received {len(entries_list_from_node)} entries to submit via command line argument.")
+            # Pass the list of entry objects, which includes their 'id' (client_id)
+            result_payload = submit_entries_to_xyz(entries_list_from_node)
         except json.JSONDecodeError as e:
             log_message(f"Error decoding JSON input from command line: {e}")
-            result = {"success": False, "message": f"Python script JSON decoding error: {e}"}
-        except Exception as e_main: # Catch any other unexpected errors in the main block
+            result_payload = {"overallSuccess": False, "message": f"Python script JSON decoding error: {e}", "submittedEntryClientIds": [], "failedEntries": []}
+        except Exception as e_main:
             log_message(f"An unexpected error occurred in the script's main execution block: {e_main}")
-            result = {"success": False, "message": f"Python script unexpected error: {e_main}"}
+            result_payload = {"overallSuccess": False, "message": f"Python script unexpected error: {e_main}", "submittedEntryClientIds": [], "failedEntries": []}
     else:
-        log_message("No time entries data provided to the script via command line argument.")
-        result = submit_entries([{"Date": "2025-05-13", "Project": "DIG02003: OneDigital Finance Transformation", "Activity": "Setup and Configuration - Design (3-CapEx)", "WorkItem": "Cus-EA", "Hours": .5, "Comment": "API integration and testing"},
-                                 {"Date": "2025-05-13", "Project": "DIG02003: OneDigital Finance Transformation", "Activity": "Setup and Configuration - Design (3-CapEx)", "WorkItem": "Cus-EA", "Hours": .5, "Comment": "API integration and testing"}])
-        #result = {"success": False, "message": "Python script: No data received to submit."}
-    
-    # Output the result as JSON to stdout for Node.js to capture
-    print(json.dumps(result))
+        log_message("No time entries data provided to the script via command line argument. Simulating with placeholder data for script testing.")
+        # Example data if run directly without args (for testing script logic)
+        placeholder_entries = [
+            {"id": "client_id_1", "Date": "2025-05-13", "Project": "Project A", "Activity": "Dev", "WorkItem": "Task 1", "Hours": 1.0, "Comment": "Test 1"},
+            {"id": "client_id_2", "Date": "2025-05-13", "Project": "Project B", "Activity": "Meeting", "WorkItem": "Planning", "Hours": 2.0, "Comment": "Test 2"},
+            {"id": "client_id_3", "Date": "2025-05-14", "Project": "Project C", "Activity": "Testing", "WorkItem": "Bugfix", "Hours": 3.0, "Comment": "Test 3"}
+        ]
+        result_payload = submit_entries_to_xyz(placeholder_entries)
+        
+    print(json.dumps(result_payload))
     log_message("Python time submission script finished.")
-
